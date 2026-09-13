@@ -1,0 +1,38 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install clang-format (pinned)
+        run: pipx install "clang-format==19.1.5"
+      - name: Check formatting
+        run: |
+          clang-format --version
+          git ls-files '*.cpp' '*.hpp' | xargs clang-format --dry-run --Werror
+
+  clang-tidy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-18 clang-tidy-18
+      - name: Configure (compile_commands.json)
+        run: cmake --preset linux-clang-release -DCMAKE_CXX_COMPILER=clang++-18
+      - name: Build generated headers
+        run: cmake --build --preset linux-clang-release --target vectorforge
+      - name: Run clang-tidy on library sources
+        run: |
+          git ls-files 'src/*.cpp' | xargs -P "$(nproc)" -n 4 \
+            clang-tidy-18 -p out/build/linux-clang-release --quiet

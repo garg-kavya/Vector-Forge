@@ -1,0 +1,12 @@
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.vfidx binary
+*.npy binary
+*.fvecs binary
+*.ivecs binary
+*.bvecs binary
+*.png binary

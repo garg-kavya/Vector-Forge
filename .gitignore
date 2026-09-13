@@ -1,0 +1,37 @@
+# Build trees
+/out/
+/build/
+/cmake-build-*/
+CMakeUserPresets.json
+compile_commands.json
+
+# IDE / tooling caches
+.vs/
+.vscode/
+.idea/
+.cache/
+*.user
+*.suo
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+wheelhouse/
+
+# Data and index artifacts (golden test files are whitelisted)
+/datasets/
+*.vfidx
+!/tests/data/golden/*.vfidx
+*.npy
+*.fvecs
+*.ivecs
+*.bvecs
+*.hdf5
+
+# OS
+.DS_Store
+Thumbs.db

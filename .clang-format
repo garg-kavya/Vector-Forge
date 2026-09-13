@@ -1,0 +1,32 @@
+---
+# Pinned formatter: clang-format 19.1.x (CI installs clang-format==19.1.5 from PyPI).
+Language: Cpp
+BasedOnStyle: Google
+Standard: c++20
+ColumnLimit: 100
+IndentWidth: 2
+AccessModifierOffset: -1
+DerivePointerAlignment: false
+PointerAlignment: Left
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+BreakBeforeBraces: Attach
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Third-party test/bench frameworks
+  - Regex: '^<(gtest|gmock|benchmark)/'
+    Priority: 1
+  # C and C++ standard / system headers
+  - Regex: '^<[a-z_0-9]+(\.h)?>$'
+    Priority: 2
+  # Public VectorForge headers
+  - Regex: '^<vectorforge/'
+    Priority: 3
+  # Internal headers
+  - Regex: '^"'
+    Priority: 4
+SortIncludes: CaseSensitive
+InsertNewlineAtEOF: true
+...
