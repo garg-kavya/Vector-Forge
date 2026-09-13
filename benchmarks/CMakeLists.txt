@@ -1,5 +1,6 @@
 add_executable(vf_micro_bench
   micro/bench_main.cpp
+  micro/bench_kernels.cpp
   micro/bench_smoke.cpp
 )
 

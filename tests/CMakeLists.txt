@@ -1,7 +1,17 @@
 include(GoogleTest)
 
 add_executable(vf_unit_tests
+  unit/test_aligned_alloc.cpp
+  unit/test_checked_math.cpp
+  unit/test_cpu_features.cpp
+  unit/test_kernels.cpp
+  unit/test_normalize.cpp
+  unit/test_rng.cpp
   unit/test_smoke.cpp
+  unit/test_status.cpp
+  unit/test_types_config.cpp
+  unit/test_validation.cpp
+  unit/test_vector_store.cpp
 )
 
 target_link_libraries(vf_unit_tests PRIVATE vectorforge::vectorforge GTest::gtest_main)

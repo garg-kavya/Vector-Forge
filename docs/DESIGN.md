@@ -206,6 +206,10 @@ directory: std::array<std::atomic<float*>, MaxChunks>   C = 2^16 rows (configura
 row(i) = directory[i >> log2C] + (i & (C−1)) * dim
 ```
 
+- *Implementation note (Phase 1):* the default chunk size is dimension-adaptive — the largest power of two
+  ≤ 16 MiB / (4·dim) rows, capped at 2¹⁶ (e.g. 32 768 rows at d=128, 2 048 rows at d=1536) — so small collections
+  do not pay for a 400 MB chunk at high dimension. The chunk directory is a `std::vector` of owning pointers
+  (thread-compatible); Phase 6b replaces it with a fixed-capacity directory of atomic pointers for lock-free readers.
 - Chunking gives **stable addresses** (no `std::vector` reallocation invalidating pointers held by concurrent
   readers) without requiring a `max_elements` up front. The cost is one shift/mask and one extra load per row
   access; benchmarked against a single contiguous buffer (`VectorStore` has a "single segment" fast path when the

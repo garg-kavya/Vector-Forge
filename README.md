@@ -5,8 +5,10 @@ VectorForge is a C++20 vector similarity search engine built from first principl
 distance kernels, a thread pool, a versioned on-disk format with memory-mapped vectors, an HTTP API
 and Python bindings.
 
-> **Status:** early development — Phase 0 (repository and toolchain) of the
-> [engineering design](docs/DESIGN.md). Most features listed below are *planned*, not implemented.
+> **Status:** early development — Phases 0–1 of the [engineering design](docs/DESIGN.md) are
+> complete (toolchain; error handling, core types, deterministic RNG, scalar distance kernels, CPU
+> feature detection, vector storage). Search, HNSW, persistence, SIMD kernels, concurrency and the
+> frontends listed below are *planned*, not implemented.
 
 ## Goals
 

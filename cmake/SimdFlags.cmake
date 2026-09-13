@@ -21,6 +21,9 @@ function(vf_set_autovec_source source)
     set_property(SOURCE ${source} APPEND PROPERTY COMPILE_OPTIONS /fp:fast)
   else()
     set_property(SOURCE ${source} APPEND PROPERTY COMPILE_OPTIONS -fopenmp-simd -ffp-contract=off)
+    # Clang warns when a requested simd transformation is not applied (e.g. at -O0/-O1).
+    set_property(SOURCE ${source} APPEND PROPERTY COMPILE_OPTIONS
+                 $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wno-pass-failed>)
     set_property(SOURCE ${source} APPEND PROPERTY COMPILE_DEFINITIONS VF_USE_OMP_SIMD=1)
   endif()
 endfunction()
