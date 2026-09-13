@@ -137,6 +137,7 @@ template <SearchCandidate T>
 class MinHeap {
  public:
   void reserve(std::size_t capacity) { data_.reserve(capacity); }
+  [[nodiscard]] std::size_t capacity() const noexcept { return data_.capacity(); }
   [[nodiscard]] std::size_t size() const noexcept { return data_.size(); }
   [[nodiscard]] bool empty() const noexcept { return data_.empty(); }
   void clear() noexcept { data_.clear(); }

@@ -8,9 +8,16 @@ add_executable(vf_unit_tests
   unit/test_cpu_features.cpp
   unit/test_dataset_io.cpp
   unit/test_flat_backend.cpp
+  unit/test_hnsw_determinism.cpp
+  unit/test_hnsw_edge_cases.cpp
+  unit/test_hnsw_graph.cpp
+  unit/test_hnsw_tombstones.cpp
+  unit/test_hnsw_validator.cpp
   unit/test_id_map.cpp
   unit/test_kernels.cpp
+  unit/test_level_generator.cpp
   unit/test_model_flat.cpp
+  unit/test_neighbor_select.cpp
   unit/test_normalize.cpp
   unit/test_recall.cpp
   unit/test_rng.cpp
@@ -21,6 +28,7 @@ add_executable(vf_unit_tests
   unit/test_types_config.cpp
   unit/test_validation.cpp
   unit/test_vector_store.cpp
+  unit/test_visited_set.cpp
 )
 target_link_libraries(vf_unit_tests PRIVATE vectorforge::vectorforge GTest::gtest_main)
 # Tests may exercise internal components directly.
@@ -46,6 +54,17 @@ gtest_discover_tests(vf_alloc_tests
   PROPERTIES LABELS unit)
 
 # Integration tests ---------------------------------------------------------------------------
+add_executable(vf_index_integration_tests
+  integration/test_hnsw_recall.cpp
+)
+target_link_libraries(vf_index_integration_tests PRIVATE vectorforge::vectorforge GTest::gtest_main)
+target_include_directories(vf_index_integration_tests
+  PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+vf_set_project_options(vf_index_integration_tests)
+gtest_discover_tests(vf_index_integration_tests
+  DISCOVERY_MODE PRE_TEST
+  PROPERTIES LABELS integration)
+
 if(VF_BUILD_CLI)
   add_executable(vf_integration_tests
     integration/test_cli_pipeline.cpp

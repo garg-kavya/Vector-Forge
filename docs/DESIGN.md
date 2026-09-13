@@ -1832,6 +1832,35 @@ flowchart LR
   ≥ 0.99 recall@10 at some tested ef on 10K/128-d clustered data (sanity property, not a published claim); HNSW
   measurably faster than Flat at 100K for the same query set (reported as measured, whatever the ratio is);
   deterministic bytes for fixed seed.
+- **Implementation notes (as built):**
+  - Level generation evaluates the paper's formula exactly in integers: `floor(−ln U / ln M) ≥ l ⇔
+    v·M^l ≤ 2^53` with `U = v·2^−53`, so no `std::log` is involved and levels are bit-identical everywhere
+    (golden values cross-checked against an independent Python implementation).
+  - `HnswParams::validate` stays in `src/core/config.cpp` (no `hnsw_params.cpp`). The distance formulas shared by
+    Flat and HNSW live in `src/index/query_distance.hpp`; Flat and HNSW produce bit-identical distances.
+  - Determinism is checked on `HnswGraph::canonical_bytes()` (levels, entry point, the first `count` ids of every
+    list) until the Phase 4 file format exists; a golden FNV-1a fingerprint pins it across compilers.
+  - `ContextPool` is mutex-protected already in Phase 3, because the thread-compatible contract allows concurrent
+    const searches. `IndexBackend::search` is no longer `noexcept` (HNSW contexts may grow); HNSW
+    `search_into` is allocation-free after warm-up (verified by the zero-allocation test binary).
+  - **Orphan repair (§9.10):** if every neighbour prunes a new node's back-link on some level, the node is
+    linked from the nearest construction candidate with a free slot. Measured: 1 000 identical vectors leave
+    966 nodes unreachable without it and 0 with it; on L2/cosine clustered data it never triggered (0 repairs
+    at 10K and 100K), so graphs there are unchanged. Build switch `HnswBuildOptions::repair_orphans`.
+  - **Inner product is not a metric**, and pruning evicts low-norm nodes from every list. Unreachable on
+    level 0: 503 (d = 16) and 223 (d = 128) of the 10K clustered test nodes; 118 of 10K and 38 850 of 100K
+    Gaussian-mixture nodes (`vf_bench`, d = 16 and 32). Recall@10 stayed ≥ 0.995 for in-distribution queries.
+    L2 and cosine graphs had 0 unreachable nodes on every test dataset. Tests freeze IP bounds (measured
+    + 20 %) instead of 0. An uncommitted prototype eviction repair (level-0 in-degree counters, re-linking nodes
+    that lost their last in-link) reduced 118 → 6 and 38 850 → 21 053 without changing recall; it was not adopted
+    (partial fix, extra per-node state and concurrency cost). Normalising (cosine) is the recommended remedy.
+  - The HNSW model-based test lives in `test_hnsw_tombstones.cpp`; the recall test is built into
+    `vf_index_integration_tests`. `vf_bench` builds through `HnswBackend` directly to expose graph and
+    distance counters. The optional external-library comparison was not run.
+  - `VisitedSet::visit` is branch-free (2.2–3.2× faster in `bench_visited`); the epoch array beats clearing a
+    byte array at n = 1M and loses at n = 10K, and stays the default (results in
+    `benchmarks/results/2026-09-14_ryzen7-4800h_msvc-release_phase3`). The "insert after load" edge
+    case moves to Phase 4, which introduces loading.
 
 ### Phase 4 — Persistence
 

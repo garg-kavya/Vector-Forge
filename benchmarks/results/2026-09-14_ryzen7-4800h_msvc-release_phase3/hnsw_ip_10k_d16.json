@@ -1,0 +1,14 @@
+{
+  "schema": 1, "suite": "hnsw-sweep-minimal",
+  "git": {"sha": "fa54bc14455d-dirty"},
+  "machine": {"cpu": "AMD Ryzen 7 4800H with Radeon Graphics"},
+  "build": {"compiler": "MSVC 19.50.35728.0", "type": "Release", "simd_tier": "scalar"},
+  "dataset": {"distribution": "gmm", "n": 10000, "queries": 500, "dim": 16, "metric": "ip", "clusters": 50, "spread": 0.25, "seed": 1},
+  "params": {"index": "hnsw", "M": 16, "ef_construction": 200, "k": 10, "selection": "heuristic", "repair_orphans": true, "threads": 1},
+  "build_result": {"seconds": 0.902561, "distance_computations": 30048720, "orphan_repairs": 1, "orphans_unrepaired": 0, "index_bytes": 9028716, "invariants_ok": true, "unreachable_level0": 118},
+  "sweep": [
+    {"ef_search": 16, "recall_at_k": 0.999, "recall_min": 0.9, "qps": 153022, "latency_us": {"p50": 6.3, "p95": 8.7, "p99": 10.3, "mean": 6.535, "max": 18.8}, "dist_comps_mean": 251.416},
+    {"ef_search": 32, "recall_at_k": 0.9998, "recall_min": 0.9, "qps": 91379.3, "latency_us": {"p50": 10.5, "p95": 14.3, "p99": 16.1, "mean": 10.9434, "max": 51.1}, "dist_comps_mean": 315.618},
+    {"ef_search": 64, "recall_at_k": 0.9998, "recall_min": 0.9, "qps": 51883.9, "latency_us": {"p50": 18.4, "p95": 24.8, "p99": 29.2, "mean": 19.2738, "max": 60.4}, "dist_comps_mean": 416.924}
+  ]
+}

@@ -28,7 +28,22 @@ All notable changes to this project are documented here. The format follows
   CLI pipeline integration tests and executable smoke tests. Benchmarks: top-k strategies and Flat
   search latency baselines.
 
+- Phase 3: single-threaded HNSW. `IndexType::Hnsw` collections (now creatable) with `HnswBackend`:
+  chunked graph storage (fixed-stride level 0, upper-level arena, `LinkView`), exact integer
+  level generation derived from `(seed, id)`, greedy descent and beam search with an epoch-stamped
+  `VisitedSet`, pooled `SearchContext`s, heuristic neighbour selection with `keep_pruned`,
+  four-phase insertion with back-link shrinking and orphan repair, tombstone-aware queries.
+  `HnswValidator` (invariants, per-level reachability, level histogram), canonical graph encoding.
+  Tests: level generator, visited set, neighbour selection, graph storage, validator, edge cases,
+  tombstones, model-based random operations, determinism with golden fingerprints, recall against
+  Flat ground truth (integration), zero-allocation HNSW queries. Benchmarks: `bench_visited`,
+  minimal `vf_bench` (build, ef_search sweep, recall, latency, distance computations, Flat
+  comparison). `docs/hnsw.md`.
+
 ### Changed
+- `Collection::create` accepts `IndexType::Hnsw` (previously `FailedPrecondition`).
+- `IndexBackend::search` may throw `std::bad_alloc` (growing HNSW search contexts).
+- `FlatBackend` distance formulas are compiled without floating-point contraction.
 - `Status` keeps its message behind a pointer so OK statuses never allocate.
 - Builds record `-dirty` in the embedded git sha when configured from a modified working tree.
 - `mingw-release` links the GCC runtime statically.

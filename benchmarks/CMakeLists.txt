@@ -4,8 +4,17 @@ add_executable(vf_micro_bench
   micro/bench_kernels.cpp
   micro/bench_topk.cpp
   micro/bench_smoke.cpp
+  micro/bench_visited.cpp
 )
 
 target_link_libraries(vf_micro_bench PRIVATE vectorforge::vectorforge benchmark::benchmark)
 target_include_directories(vf_micro_bench PRIVATE ${PROJECT_SOURCE_DIR}/src)
 vf_set_project_options(vf_micro_bench)
+
+# Macro benchmark runner (minimal in Phase 3). Uses CLI11, which is fetched with the CLI.
+if(VF_BUILD_CLI)
+  add_executable(vf_bench macro/vf_bench.cpp)
+  target_link_libraries(vf_bench PRIVATE vectorforge::vectorforge CLI11::CLI11)
+  target_include_directories(vf_bench PRIVATE ${PROJECT_SOURCE_DIR}/src)
+  vf_set_project_options(vf_bench)
+endif()

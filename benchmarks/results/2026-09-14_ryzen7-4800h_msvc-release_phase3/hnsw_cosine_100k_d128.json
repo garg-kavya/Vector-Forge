@@ -1,0 +1,19 @@
+{
+  "schema": 1, "suite": "hnsw-sweep-minimal",
+  "git": {"sha": "fa54bc14455d-dirty"},
+  "machine": {"cpu": "AMD Ryzen 7 4800H with Radeon Graphics"},
+  "build": {"compiler": "MSVC 19.50.35728.0", "type": "Release", "simd_tier": "scalar"},
+  "dataset": {"distribution": "gmm", "n": 100000, "queries": 1000, "dim": 128, "metric": "cosine", "clusters": 100, "spread": 0.1, "seed": 1},
+  "params": {"index": "hnsw", "M": 16, "ef_construction": 200, "k": 10, "selection": "heuristic", "repair_orphans": true, "threads": 1},
+  "build_result": {"seconds": 38.8045, "distance_computations": 322485068, "orphan_repairs": 0, "orphans_unrepaired": 0, "index_bytes": 18773518, "invariants_ok": true, "unreachable_level0": 0},
+  "flat": {"seconds": 7.39487, "qps": 135.229, "mean_latency_us": 7394.87},
+  "sweep": [
+    {"ef_search": 10, "recall_at_k": 0.7044, "recall_min": 0, "qps": 15120.2, "latency_us": {"p50": 64.9, "p95": 82.4, "p99": 97.7, "mean": 66.1365, "max": 130.9}, "dist_comps_mean": 383.305},
+    {"ef_search": 16, "recall_at_k": 0.8221, "recall_min": 0.3, "qps": 11693.8, "latency_us": {"p50": 84, "p95": 103.2, "p99": 118.6, "mean": 85.5153, "max": 158.1}, "dist_comps_mean": 475.311},
+    {"ef_search": 32, "recall_at_k": 0.9411, "recall_min": 0.5, "qps": 7994.4, "latency_us": {"p50": 123.3, "p95": 145, "p99": 164.6, "mean": 125.088, "max": 202.2}, "dist_comps_mean": 658.827},
+    {"ef_search": 64, "recall_at_k": 0.9903, "recall_min": 0.8, "qps": 5561.69, "latency_us": {"p50": 176.8, "p95": 207.4, "p99": 255.2, "mean": 179.801, "max": 306}, "dist_comps_mean": 872.572},
+    {"ef_search": 128, "recall_at_k": 0.9995, "recall_min": 0.9, "qps": 4293.14, "latency_us": {"p50": 229.4, "p95": 267.2, "p99": 288.5, "mean": 232.93, "max": 358.6}, "dist_comps_mean": 1038.07},
+    {"ef_search": 256, "recall_at_k": 1, "recall_min": 1, "qps": 3183.19, "latency_us": {"p50": 300.7, "p95": 404.9, "p99": 491.1, "mean": 314.15, "max": 779.8}, "dist_comps_mean": 1111.17},
+    {"ef_search": 512, "recall_at_k": 1, "recall_min": 1, "qps": 2665.79, "latency_us": {"p50": 371.9, "p95": 418.3, "p99": 452.5, "mean": 375.124, "max": 519.8}, "dist_comps_mean": 1135.51}
+  ]
+}

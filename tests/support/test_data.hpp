@@ -45,6 +45,37 @@ inline std::vector<float> integer_matrix(vf::detail::Xoshiro256ss& rng, std::siz
   return integer_vector(rng, rows * dim, lo, hi);
 }
 
+// Clustered data that is bit-identical on every platform (no std::log, unlike the Gaussian
+// mixture generator): `clusters` centres uniform in [-1, 1)^dim, each row = a uniformly chosen
+// centre plus independent uniform noise in [-spread, spread) per component.
+class ClusteredData {
+ public:
+  ClusteredData(std::uint64_t mixture_seed, std::size_t dim, std::size_t clusters, float spread)
+      : dim_(dim), clusters_(clusters), spread_(spread) {
+    vf::detail::Xoshiro256ss rng(mixture_seed);
+    centres_ = random_matrix(rng, clusters, dim);
+  }
+
+  [[nodiscard]] std::vector<float> rows(std::uint64_t seed, std::size_t count) const {
+    vf::detail::Xoshiro256ss rng(seed);
+    std::vector<float> out(count * dim_);
+    for (std::size_t r = 0; r < count; ++r) {
+      const auto c = static_cast<std::size_t>(vf::detail::uniform_below(rng, clusters_));
+      for (std::size_t j = 0; j < dim_; ++j) {
+        out[(r * dim_) + j] =
+            centres_[(c * dim_) + j] + vf::detail::uniform_float(rng(), -spread_, spread_);
+      }
+    }
+    return out;
+  }
+
+ private:
+  std::size_t dim_;
+  std::size_t clusters_;
+  float spread_;
+  std::vector<float> centres_;
+};
+
 // Unique temporary directory removed on destruction.
 class ScopedTempDir {
  public:

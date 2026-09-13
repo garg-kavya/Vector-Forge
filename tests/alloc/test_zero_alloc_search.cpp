@@ -35,26 +35,35 @@ TEST(AllocationCounter, DetectsAllocations) {
 }
 
 struct Case {
+  vf::IndexType index;
   Metric metric;
   bool normalize;
   std::uint32_t k;
 };
 
+// Flat queries never allocate. HNSW queries reuse pooled search contexts, which are sized by the
+// first queries, so HNSW is measured after one warm-up pass over the same queries.
 TEST(ZeroAllocation, SearchIntoDoesNotAllocate) {
   constexpr std::uint32_t kDim = 32;
-  const Case cases[] = {{Metric::L2, false, 10},
-                        {Metric::InnerProduct, false, 64},
-                        {Metric::Cosine, false, 5},
-                        {Metric::L2, true, 100},
-                        {Metric::L2, false, 5000}};
+  const Case cases[] = {{vf::IndexType::Flat, Metric::L2, false, 10},
+                        {vf::IndexType::Flat, Metric::InnerProduct, false, 64},
+                        {vf::IndexType::Flat, Metric::Cosine, false, 5},
+                        {vf::IndexType::Flat, Metric::L2, true, 100},
+                        {vf::IndexType::Flat, Metric::L2, false, 5000},
+                        {vf::IndexType::Hnsw, Metric::L2, false, 10},
+                        {vf::IndexType::Hnsw, Metric::InnerProduct, false, 64},
+                        {vf::IndexType::Hnsw, Metric::Cosine, false, 5},
+                        {vf::IndexType::Hnsw, Metric::L2, true, 1000}};
   for (const Case& c : cases) {
-    SCOPED_TRACE(testing::Message()
-                 << vf::to_string(c.metric) << " normalize=" << c.normalize << " k=" << c.k);
+    SCOPED_TRACE(testing::Message() << vf::to_string(c.index) << " " << vf::to_string(c.metric)
+                                    << " normalize=" << c.normalize << " k=" << c.k);
     vf::CollectionConfig cfg;
     cfg.dim = kDim;
     cfg.metric = c.metric;
     cfg.normalize = c.normalize;
-    cfg.index = vf::IndexType::Flat;
+    cfg.index = c.index;
+    cfg.hnsw.M = 8;
+    cfg.hnsw.ef_construction = 40;
     const std::unique_ptr<Collection> col = Collection::create(cfg).value();
     vf::detail::Xoshiro256ss rng(7);
     for (vf::ExternalId id = 0; id < 3000; ++id) {
@@ -71,6 +80,10 @@ TEST(ZeroAllocation, SearchIntoDoesNotAllocate) {
     std::size_t total_results = 0;
     std::size_t failures = 0;
     std::size_t allocations = 0;
+    for (std::size_t q = 0; c.index == vf::IndexType::Hnsw && q < 50; ++q) {  // warm-up
+      static_cast<void>(
+          col->search_into(std::span<const float>(queries).subspan(q * kDim, kDim), params, out));
+    }
     {
       const vf::test::AllocationCounter counter;
       for (std::size_t q = 0; q < 50; ++q) {

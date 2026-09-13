@@ -5,12 +5,16 @@
 // A collection stores float32 vectors of a fixed dimension under user-chosen 64-bit ids and answers
 // k-nearest-neighbour queries under its metric (docs/DESIGN.md §8.1).
 //
-// Thread safety (Phase 2): thread-compatible. Const member functions may be called concurrently
+// Thread safety (Phase 3): thread-compatible. Const member functions may be called concurrently
 // with each other; non-const member functions require exclusive access (no concurrent readers or
 // writers). Built-in synchronisation arrives in Phase 6.
 //
-// Supported index types: IndexType::Flat (exact search). IndexType::Hnsw arrives in Phase 3;
-// create() reports FailedPrecondition for it until then.
+// Index types:
+//   IndexType::Flat - exact search; results are the true k nearest neighbours.
+//   IndexType::Hnsw - approximate search over a Hierarchical Navigable Small World graph
+//                     (docs/hnsw.md); results may miss true neighbours, controlled by
+//                     HnswParams::ef_construction and SearchParams::ef_search. Removed vectors stay
+//                     in the graph for navigation and are never returned.
 
 #include <cstddef>
 #include <cstdint>
@@ -30,7 +34,7 @@ struct MemoryUsage {
   std::size_t labels_bytes = 0;           // internal -> external id array
   std::size_t id_map_bytes_estimate = 0;  // external -> internal hash map (estimated)
   std::size_t tombstone_bytes = 0;
-  std::size_t index_bytes = 0;  // index structures (0 for Flat)
+  std::size_t index_bytes = 0;  // index structures and build scratch (0 for Flat)
 
   [[nodiscard]] std::size_t total_bytes() const noexcept {
     return vectors_bytes + labels_bytes + id_map_bytes_estimate + tombstone_bytes + index_bytes;
@@ -51,7 +55,7 @@ struct CollectionStats {
 
 class Collection {
  public:
-  // Errors: InvalidArgument (invalid config); FailedPrecondition (index type not yet available).
+  // Errors: InvalidArgument (invalid config, including HnswParams for IndexType::Hnsw).
   [[nodiscard]] static Result<std::unique_ptr<Collection>> create(const CollectionConfig& config);
 
   Collection(const Collection&) = delete;
@@ -84,14 +88,19 @@ class Collection {
   [[nodiscard]] Result<std::vector<float>> get(ExternalId id) const;
   [[nodiscard]] bool contains(ExternalId id) const noexcept;
 
-  // k nearest neighbours of `query`, ascending by distance (ties: older insertions first).
+  // k nearest neighbours of `query`, ascending by distance (ties: older insertions first). Exact
+  // for Flat; approximate for HNSW, which explores a beam of max(ef_search, k) candidates
+  // (params.ef_search, else config().hnsw.ef_search) and may return fewer than k results when
+  // many vectors are removed or unreachable.
   // Errors: DimensionMismatch; InvalidArgument (params, non-finite query, zero query in a
   // normalised collection).
   [[nodiscard]] Result<std::vector<Neighbor>> search(std::span<const float> query,
                                                      const SearchParams& params = {}) const;
 
   // As search(), writing into caller storage: requires out.size() >= params.k and returns the
-  // number of results written. Performs no heap allocation on success.
+  // number of results written. Flat: performs no heap allocation. HNSW: reuses pooled search
+  // contexts and allocates only while they grow (first queries, a larger graph or beam width, or
+  // more concurrent searches than before); may throw std::bad_alloc then.
   [[nodiscard]] Result<std::size_t> search_into(std::span<const float> query,
                                                 const SearchParams& params,
                                                 std::span<Neighbor> out) const;

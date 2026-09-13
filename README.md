@@ -5,11 +5,11 @@ VectorForge is a C++20 vector similarity search engine built from first principl
 distance kernels, a thread pool, a versioned on-disk format with memory-mapped vectors, an HTTP API
 and Python bindings.
 
-> **Status:** early development — Phases 0–2 of the [engineering design](docs/DESIGN.md) are
+> **Status:** early development — Phases 0–3 of the [engineering design](docs/DESIGN.md) are
 > complete: toolchain; core types, deterministic RNG, scalar distance kernels, vector storage; exact
-> (Flat) search through `vf::Collection`, dataset I/O and the `vectorforge gen-data` /
-> `ground-truth` CLI. HNSW, persistence, SIMD kernels, concurrency, HTTP and Python are *planned*,
-> not implemented.
+> (Flat) search, dataset I/O and the `vectorforge gen-data` / `ground-truth` CLI; single-threaded
+> HNSW approximate search ([docs/hnsw.md](docs/hnsw.md)). Persistence, SIMD kernels, concurrency,
+> HTTP and Python are *planned*, not implemented.
 
 ## Quick start (current API)
 
@@ -19,13 +19,14 @@ and Python bindings.
 vf::CollectionConfig cfg;
 cfg.dim = 3;
 cfg.metric = vf::Metric::Cosine;
-cfg.index = vf::IndexType::Flat;  // HNSW arrives in Phase 3
+cfg.index = vf::IndexType::Hnsw;  // default; IndexType::Flat for exact search
 auto col = vf::Collection::create(cfg).value();
 if (vf::Status st = col->add(42, std::vector<float>{0.1F, 0.2F, 0.3F}); !st.ok()) {
   std::fprintf(stderr, "%s\n", st.to_string().c_str());
 }
 vf::SearchParams params;
 params.k = 5;
+params.ef_search = 64;  // HNSW beam width (recall/latency trade-off)
 auto hits = col->search(std::vector<float>{0.1F, 0.2F, 0.25F}, params).value();  // ascending distance
 ```
 
@@ -52,9 +53,9 @@ format, API design, test and benchmark methodology, and the phased implementatio
 
 No end-to-end performance results are published yet. Numbers will appear here only after the
 benchmark suite has been run, with the raw result files committed under `benchmarks/results/` and the
-methodology described in the design document (§16). Component-level micro-benchmark baselines
-(kernels, top-k selection, exact search) are recorded, with their environment, in
-`benchmarks/results/`.
+methodology described in the design document (§16). Component-level baselines (kernels, top-k
+selection, exact search, a single-configuration HNSW recall/latency sweep) are recorded, with their
+environment, in `benchmarks/results/`.
 
 ## Building
 
@@ -88,7 +89,7 @@ Sanitizer presets: `linux-clang-asan-ubsan`, `linux-clang-tsan`.
 | Option | Default | Meaning |
 |---|---|---|
 | `VF_BUILD_TESTS` | ON | GoogleTest suites |
-| `VF_BUILD_BENCHMARKS` | ON | Google Benchmark micro benchmarks |
+| `VF_BUILD_BENCHMARKS` | ON | Google Benchmark micro benchmarks and `vf_bench` (needs `VF_BUILD_CLI`) |
 | `VF_SANITIZE` | empty | `address`, `address;undefined`, or `thread` |
 | `VF_WARNINGS_AS_ERRORS` | OFF (ON in presets) | treat warnings as errors |
 | `VF_ENABLE_AVX2` | ON | compile AVX2 kernels for runtime dispatch |
@@ -101,7 +102,7 @@ include/vectorforge/   public headers
 src/                   library implementation (internal headers)
 apps/cli/              vectorforge command-line tool
 tests/                 GoogleTest suites
-benchmarks/            micro (Google Benchmark) and, later, macro benchmarks
+benchmarks/            micro (Google Benchmark) and macro (vf_bench) benchmarks, committed results
 cmake/                 build modules (warnings, sanitizers, SIMD flags, dependencies)
 tools/                 developer scripts
 docs/                  design document and architecture decision records

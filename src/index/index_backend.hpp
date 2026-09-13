@@ -1,6 +1,6 @@
 #pragma once
 
-// Internal interface implemented by index types (Flat now, HNSW from Phase 3).
+// Internal interface implemented by index types (FlatBackend, HnswBackend).
 //
 // A backend indexes rows that the owning collection has already appended to its VectorStore and
 // reads deletion markers from the collection's TombstoneSet; it owns neither. The virtual call is
@@ -27,7 +27,7 @@ struct QueryView {
 
 struct SearchKnobs {
   std::uint32_t k = 10;
-  std::uint32_t ef = 0;  // 0 = backend default; ignored by Flat
+  std::uint32_t ef = 0;  // beam width; 0 = backend default; ignored by Flat
 };
 
 struct BackendStats {
@@ -53,9 +53,11 @@ class IndexBackend {
 
   // Writes up to `knobs.k` best non-tombstoned rows into `out`, sorted by ascending
   // (distance, internal id), with Neighbor::id holding the *internal* id. Returns the count.
+  // Exact backends return the true top-k; approximate backends may miss neighbours.
   // Preconditions: out.size() >= knobs.k >= 1; query validated.
+  // May throw std::bad_alloc when growing reusable search scratch (never for Flat).
   [[nodiscard]] virtual std::size_t search(const QueryView& query, const SearchKnobs& knobs,
-                                           std::span<Neighbor> out) const noexcept = 0;
+                                           std::span<Neighbor> out) const = 0;
 
   [[nodiscard]] virtual BackendStats stats() const noexcept = 0;
 };

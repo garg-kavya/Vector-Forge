@@ -17,6 +17,7 @@
 #include "core/validation.hpp"
 #include "core/vector_ops.hpp"
 #include "index/flat_backend.hpp"
+#include "index/hnsw/hnsw_backend.hpp"
 #include "simd/kernels.hpp"
 
 namespace vf {
@@ -47,7 +48,7 @@ SearchKnobs knobs_for(const SearchParams& params, std::uint64_t rows) noexcept {
 
 // Runs a validated query and rewrites internal ids to external ids.
 std::size_t run_query(const CollectionState& state, const QueryView& view, const SearchKnobs& knobs,
-                      std::span<Neighbor> out) noexcept {
+                      std::span<Neighbor> out) {
   const std::size_t count = state.backend->search(view, knobs, out);
   for (std::size_t i = 0; i < count; ++i) {
     out[i].id = state.ids.label(static_cast<InternalId>(out[i].id));
@@ -118,18 +119,28 @@ Collection::~Collection() = default;
 
 Result<std::unique_ptr<Collection>> Collection::create(const CollectionConfig& config) {
   VF_RETURN_IF_ERROR(config.validate());
-  if (config.index != IndexType::Flat) {
-    return Status::failed_precondition("index type '" + std::string(to_string(config.index)) +
-                                       "' is not available yet (Flat only in this version)");
-  }
   Result<detail::VectorStore> store = detail::VectorStore::create({.dim = config.dim});
   if (!store.ok()) {
     return store.status();
   }
   const detail::KernelTable& kernels = detail::kernels();
   auto state = std::make_unique<detail::CollectionState>(config, std::move(store).value(), kernels);
-  state->backend = std::make_unique<detail::FlatBackend>(state->vectors, state->deleted,
-                                                         config.metric, state->normalized, kernels);
+  switch (config.index) {
+    case IndexType::Flat:
+      state->backend = std::make_unique<detail::FlatBackend>(
+          state->vectors, state->deleted, config.metric, state->normalized, kernels);
+      break;
+    case IndexType::Hnsw: {
+      Result<std::unique_ptr<detail::HnswBackend>> hnsw = detail::HnswBackend::create(
+          state->vectors, state->deleted, config.metric, state->normalized, kernels, config.hnsw);
+      if (!hnsw.ok()) {
+        return hnsw.status();
+      }
+      state->backend = std::move(hnsw).value();
+      break;
+    }
+  }
+  VF_CHECK(state->backend != nullptr, "Collection::create: validated index type has no backend");
 
   auto impl = std::make_unique<Impl>();
   impl->state = std::move(state);

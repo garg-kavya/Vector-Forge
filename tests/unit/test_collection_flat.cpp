@@ -43,9 +43,11 @@ TEST(CollectionFlat, CreateValidation) {
   CollectionConfig cfg;
   EXPECT_EQ(Collection::create(cfg).status().code(), ErrorCode::InvalidArgument);  // dim 0
   cfg.dim = 4;
-  cfg.index = IndexType::Hnsw;
-  EXPECT_EQ(Collection::create(cfg).status().code(), ErrorCode::FailedPrecondition);
+  cfg.index = static_cast<IndexType>(7);
+  EXPECT_EQ(Collection::create(cfg).status().code(), ErrorCode::InvalidArgument);
   cfg.index = IndexType::Flat;
+  cfg.hnsw.M = 1;  // HNSW parameters are not validated for Flat collections
+
   const auto ok = Collection::create(cfg);
   ASSERT_TRUE(ok.ok());
   EXPECT_EQ(ok.value()->config().dim, 4U);
