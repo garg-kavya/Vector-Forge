@@ -3,6 +3,7 @@
 // Collection and index configuration with validation.
 
 #include <cstdint>
+#include <optional>
 
 #include <vectorforge/status.hpp>
 #include <vectorforge/types.hpp>
@@ -48,6 +49,22 @@ struct CollectionConfig {
   [[nodiscard]] bool effective_normalize() const noexcept {
     return normalize || metric == Metric::Cosine;
   }
+};
+
+struct SearchParams {
+  static constexpr std::uint32_t kMaxK = 1U << 20;
+
+  // Number of neighbours requested, in [1, kMaxK]. Fewer are returned if the collection is smaller.
+  std::uint32_t k = 10;
+  // HNSW beam width override (ignored by Flat collections); must be in [1, HnswParams::kMaxEf].
+  std::optional<std::uint32_t> ef_search;
+
+  [[nodiscard]] Status validate() const;
+};
+
+struct InsertOptions {
+  // Replace the vector of an existing id instead of failing with AlreadyExists.
+  bool upsert = false;
 };
 
 }  // namespace vf

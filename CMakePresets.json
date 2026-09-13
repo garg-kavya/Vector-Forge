@@ -12,6 +12,7 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "VF_BUILD_TESTS": "ON",
         "VF_BUILD_BENCHMARKS": "ON",
+        "VF_BUILD_CLI": "ON",
         "VF_WARNINGS_AS_ERRORS": "ON"
       }
     },
@@ -50,7 +51,11 @@
       "name": "mingw-release",
       "displayName": "MinGW-w64 GCC Release (compile check)",
       "inherits": "windows-base",
-      "cacheVariables": { "CMAKE_CXX_COMPILER": "g++", "CMAKE_BUILD_TYPE": "Release" }
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXE_LINKER_FLAGS": "-static"
+      }
     },
     {
       "name": "linux-base",

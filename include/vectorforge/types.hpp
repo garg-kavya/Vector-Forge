@@ -28,6 +28,9 @@ enum class IndexType : std::uint8_t {
 // User-facing vector identifier.
 using ExternalId = std::uint64_t;
 
+// Reserved external id: never accepted on insert; marks padding slots in batch search output.
+inline constexpr ExternalId kInvalidExternalId = std::numeric_limits<ExternalId>::max();
+
 // Dense per-collection identifier (row number in vector storage and node id in the graph).
 using InternalId = std::uint32_t;
 
@@ -44,6 +47,8 @@ inline constexpr std::uint64_t kMaxVectorsPerCollection = std::uint64_t{kInvalid
 // produce NaN (inf - inf) from finite input. NaN distances would break heap ordering.
 inline constexpr float kMaxAbsComponent = 1e16F;
 
+// One search hit. Results are ordered by ascending distance; equal distances are ordered by
+// insertion order (older vectors first).
 struct Neighbor {
   ExternalId id = 0;
   float distance = 0.0F;

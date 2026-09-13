@@ -5,10 +5,35 @@ VectorForge is a C++20 vector similarity search engine built from first principl
 distance kernels, a thread pool, a versioned on-disk format with memory-mapped vectors, an HTTP API
 and Python bindings.
 
-> **Status:** early development — Phases 0–1 of the [engineering design](docs/DESIGN.md) are
-> complete (toolchain; error handling, core types, deterministic RNG, scalar distance kernels, CPU
-> feature detection, vector storage). Search, HNSW, persistence, SIMD kernels, concurrency and the
-> frontends listed below are *planned*, not implemented.
+> **Status:** early development — Phases 0–2 of the [engineering design](docs/DESIGN.md) are
+> complete: toolchain; core types, deterministic RNG, scalar distance kernels, vector storage; exact
+> (Flat) search through `vf::Collection`, dataset I/O and the `vectorforge gen-data` /
+> `ground-truth` CLI. HNSW, persistence, SIMD kernels, concurrency, HTTP and Python are *planned*,
+> not implemented.
+
+## Quick start (current API)
+
+```cpp
+#include <vectorforge/collection.hpp>
+
+vf::CollectionConfig cfg;
+cfg.dim = 3;
+cfg.metric = vf::Metric::Cosine;
+cfg.index = vf::IndexType::Flat;  // HNSW arrives in Phase 3
+auto col = vf::Collection::create(cfg).value();
+if (vf::Status st = col->add(42, std::vector<float>{0.1F, 0.2F, 0.3F}); !st.ok()) {
+  std::fprintf(stderr, "%s\n", st.to_string().c_str());
+}
+vf::SearchParams params;
+params.k = 5;
+auto hits = col->search(std::vector<float>{0.1F, 0.2F, 0.25F}, params).value();  // ascending distance
+```
+
+```bash
+vectorforge gen-data --n 100000 --dim 128 --seed 1 --out base.npy
+vectorforge gen-data --n 1000 --dim 128 --seed 2 --out queries.npy
+vectorforge ground-truth --base base.npy --queries queries.npy --metric l2 --k 100 --out gt
+```
 
 ## Goals
 
@@ -25,14 +50,17 @@ format, API design, test and benchmark methodology, and the phased implementatio
 
 ## Performance
 
-No performance results are published yet. Numbers will appear here only after benchmarks have been
-run, with the raw result files committed under `benchmarks/results/` and the methodology described
-in the design document (§16).
+No end-to-end performance results are published yet. Numbers will appear here only after the
+benchmark suite has been run, with the raw result files committed under `benchmarks/results/` and the
+methodology described in the design document (§16). Component-level micro-benchmark baselines
+(kernels, top-k selection, exact search) are recorded, with their environment, in
+`benchmarks/results/`.
 
 ## Building
 
 Requirements: CMake ≥ 3.25, Ninja, and a C++20 compiler (MSVC 19.4x+, GCC 13+, Clang 17+).
-GoogleTest and Google Benchmark are fetched automatically (pinned by version and SHA-256).
+GoogleTest, Google Benchmark and CLI11 are fetched automatically (pinned by version and SHA-256); the
+core library has no third-party dependencies.
 
 ### Windows (MSVC)
 
@@ -71,6 +99,7 @@ Sanitizer presets: `linux-clang-asan-ubsan`, `linux-clang-tsan`.
 ```
 include/vectorforge/   public headers
 src/                   library implementation (internal headers)
+apps/cli/              vectorforge command-line tool
 tests/                 GoogleTest suites
 benchmarks/            micro (Google Benchmark) and, later, macro benchmarks
 cmake/                 build modules (warnings, sanitizers, SIMD flags, dependencies)

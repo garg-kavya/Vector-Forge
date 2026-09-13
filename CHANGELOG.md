@@ -17,3 +17,18 @@ All notable changes to this project are documented here. The format follows
   comparison variants; x86 CPU feature detection (CPUID + XGETBV); kernel dispatch table (scalar);
   input validation, normalisation and public `vf::distance`/`vf::normalize`; chunked append-only
   `VectorStore` with stable row addresses; unit tests; Google Benchmark scalar kernel baseline.
+- Phase 2: exact search. Public `vf::Collection` (Flat index): add, add_batch (all-or-nothing
+  validation), upsert, remove (tombstones), get, contains, search, allocation-free search_into,
+  search_batch with padding, stats with memory breakdown. `IdMap` with reserve/commit/rollback,
+  `TombstoneSet`, `IndexBackend` interface and blocked, chunk-aware `FlatBackend`; bounded max-heap
+  and min-heap with deterministic (distance, id) ordering. NumPy `.npy` (streaming reader/writer) and
+  TEXMEX `.fvecs`/`.ivecs` I/O; tie-tolerant `recall_at_k`; seeded synthetic uniform and Gaussian
+  mixture generators. `vectorforge` CLI (CLI11) with `gen-data` and `ground-truth`. Tests: double-
+  precision brute-force reference, 10⁴-operation model-based tests, zero-allocation test binary,
+  CLI pipeline integration tests and executable smoke tests. Benchmarks: top-k strategies and Flat
+  search latency baselines.
+
+### Changed
+- `Status` keeps its message behind a pointer so OK statuses never allocate.
+- Builds record `-dirty` in the embedded git sha when configured from a modified working tree.
+- `mingw-release` links the GCC runtime statically.

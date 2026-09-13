@@ -31,8 +31,8 @@ jobs:
       - name: Configure (compile_commands.json)
         run: cmake --preset linux-clang-release -DCMAKE_CXX_COMPILER=clang++-18
       - name: Build generated headers
-        run: cmake --build --preset linux-clang-release --target vectorforge
-      - name: Run clang-tidy on library sources
+        run: cmake --build --preset linux-clang-release --target vectorforge vf_cli_commands
+      - name: Run clang-tidy on library and CLI sources
         run: |
-          git ls-files 'src/*.cpp' | xargs -P "$(nproc)" -n 4 \
+          git ls-files 'src/*.cpp' 'apps/*.cpp' | xargs -P "$(nproc)" -n 4 \
             clang-tidy-18 -p out/build/linux-clang-release --quiet

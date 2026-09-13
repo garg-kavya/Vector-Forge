@@ -73,6 +73,22 @@ class VectorStore {
     return {row_ptr(id), dim_};
   }
 
+  // Contiguous row data of chunk `chunk` (rows_in_chunk(chunk) * dim() floats). Sequential scans
+  // iterate chunks to avoid per-row address computation. Precondition: chunk < chunk_count().
+  [[nodiscard]] const float* chunk_data(std::size_t chunk) const noexcept {
+    VF_ASSERT(chunk < chunks_.size(), "VectorStore::chunk_data: chunk out of range");
+    return chunks_[chunk].get();
+  }
+  // Number of appended rows stored in `chunk` (may be less than rows_per_chunk() for the last one).
+  [[nodiscard]] std::size_t rows_in_chunk(std::size_t chunk) const noexcept {
+    const std::uint64_t start = static_cast<std::uint64_t>(chunk) * rows_per_chunk_;
+    if (start >= size_) {
+      return 0;
+    }
+    const std::uint64_t remaining = size_ - start;
+    return remaining < rows_per_chunk_ ? static_cast<std::size_t>(remaining) : rows_per_chunk_;
+  }
+
   [[nodiscard]] std::uint32_t dim() const noexcept { return dim_; }
   [[nodiscard]] std::uint64_t size() const noexcept { return size_; }
   [[nodiscard]] bool empty() const noexcept { return size_ == 0; }

@@ -586,9 +586,9 @@ Thread-safety contract table (published in `docs/concurrency.md` and in header c
 ```bash
 vectorforge gen-data --n 100000 --dim 768 --dist gaussian-mixture --clusters 100 --seed 1 --out base.npy
 vectorforge gen-data --n 10000  --dim 768 --dist gaussian-mixture --clusters 100 --seed 2 --out queries.npy
-vectorforge ground-truth --base base.npy --queries queries.npy --metric cosine --k 100 --threads 16 --out gt.npz
+vectorforge ground-truth --base base.npy --queries queries.npy --metric cosine --k 100 --out gt   # gt.ids.npy + gt.distances.npy; --threads from Phase 6
 vectorforge build  --input base.npy --metric cosine --index hnsw --M 16 --ef-construction 200 --threads 16 --out idx.vfidx
-vectorforge search --index idx.vfidx --queries queries.npy --k 10 --ef 100 --threads 16 --out results.npy [--gt gt.npz]
+vectorforge search --index idx.vfidx --queries queries.npy --k 10 --ef 100 --threads 16 --out results.npy [--gt gt]
 vectorforge info   idx.vfidx          # header, sections, params, level histogram
 vectorforge verify idx.vfidx          # full checksum + graph invariant validation; non-zero exit on failure
 vectorforge serve  --data-dir ./data --host 127.0.0.1 --port 8080 --http-threads 16 --compute-threads 16
@@ -1794,6 +1794,23 @@ flowchart LR
 - **Benchmarks:** top-k strategies; exact search latency baseline (scalar, single thread) at 10K/100K × 128/768.
 - **Acceptance:** `vectorforge gen-data` + `ground-truth` produce files; Flat collection passes model-based test
   for 10⁴ random operations; zero-allocation `search_into` verified.
+- **Implementation notes (as built):**
+  - Top-k: `src/search/heaps.hpp` (`BoundedMaxHeap`, `MinHeap`). The planned sorted-insertion selector
+    (`topk.hpp`) was benchmarked and lost to the heap for every allocation-free case, so it was not kept in
+    the library (`benchmarks/results/2026-09-13_ryzen7-4800h_msvc-release_phase2`).
+  - The `accept` filter is the collection's `TombstoneSet` (`src/storage/tombstones.hpp`), read by backends.
+    `IndexBackend` serialisation hooks are deferred to Phase 4, where the format they serve is defined.
+  - Normalised collections do not copy or normalise the query: backends score `dot(q, x) / ||q||`
+    (cosine `1 − ·`, L2 `2 − 2·`, clamped at 0; IP `−·`), keeping `search_into` allocation-free.
+  - `Status` stores its message behind a pointer, so an OK status never allocates (found by the
+    zero-allocation test: MSVC debug `std::string` default construction allocates).
+  - `kInvalidExternalId` (2⁶⁴−1) is reserved: rejected on insert, used as padding in batch output.
+  - Ground truth is written as `<prefix>.ids.npy` (int64, −1 padding) and `<prefix>.distances.npy`
+    (float32, +inf padding) instead of `.npz`, avoiding a zip dependency.
+  - `add_batch`/`search_batch` take no `ThreadPool*` yet (added in Phase 6a); CLI11 (pinned by SHA-256) is
+    introduced here for the CLI rather than in Phase 7.
+  - `mingw-release` links the GCC runtime statically so tests do not load an incompatible
+    `libstdc++-6.dll` found earlier on `PATH` (e.g. Git for Windows).
 
 ### Phase 3 — HNSW (single-threaded)
 

@@ -44,11 +44,16 @@ std::string Status::to_string() const {
     return "OK";
   }
   std::string out(vf::to_string(code_));
-  if (!message_.empty()) {
+  if (!message().empty()) {
     out += ": ";
-    out += message_;
+    out += message();
   }
   return out;
+}
+
+const std::string& Status::empty_message() noexcept {
+  static const std::string empty;
+  return empty;
 }
 
 namespace detail {

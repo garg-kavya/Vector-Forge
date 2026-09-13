@@ -1,4 +1,10 @@
 set(VF_CORE_SOURCES
+  collection/collection.cpp
+  index/flat_backend.cpp
+  storage/id_map.cpp
+  util/dataset_io.cpp
+  util/recall.cpp
+  util/synthetic.cpp
   core/build_info.cpp
   core/config.cpp
   core/status.cpp

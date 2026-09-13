@@ -88,6 +88,39 @@ TEST(Rng, UniformFloatStaysInHalfOpenRange) {
   }
 }
 
+TEST(Rng, MulHighMatchesReference) {
+  constexpr auto kMax = std::numeric_limits<std::uint64_t>::max();
+  EXPECT_EQ(vf::detail::mul_high_u64(0, kMax), 0U);
+  EXPECT_EQ(vf::detail::mul_high_u64(1, kMax), 0U);
+  EXPECT_EQ(vf::detail::mul_high_u64(kMax, kMax), kMax - 1);  // (2^64-1)^2 = 2^128 - 2^65 + 1
+  EXPECT_EQ(vf::detail::mul_high_u64(1ULL << 32U, 1ULL << 32U), 1U);
+  EXPECT_EQ(vf::detail::mul_high_u64(0xFFFFFFFFULL, 0xFFFFFFFFULL), 0U);
+  // 0x123456789ABCDEF0 * 0x0FEDCBA987654321 = 0x0121FA00AD77D742_2236D88FE5618CF0 (checked in
+  // Python).
+  EXPECT_EQ(vf::detail::mul_high_u64(0x123456789ABCDEF0ULL, 0x0FEDCBA987654321ULL),
+            0x0121FA00AD77D742ULL);
+}
+
+TEST(Rng, UniformBelowRangeAndBalance) {
+  Xoshiro256ss rng(123);
+  EXPECT_EQ(vf::detail::uniform_below(rng, 1), 0U);
+  std::array<int, 7> histogram{};
+  constexpr int kDraws = 70000;
+  for (int i = 0; i < kDraws; ++i) {
+    const std::uint64_t v = vf::detail::uniform_below(rng, 7);
+    ASSERT_LT(v, 7U);
+    ++histogram[v];
+  }
+  for (const int count : histogram) {
+    EXPECT_NEAR(count, kDraws / 7, 400);  // ~4.4 standard deviations
+  }
+  // Huge bounds exercise the rejection threshold computation.
+  const std::uint64_t big = (std::uint64_t{1} << 63U) + 12345;
+  for (int i = 0; i < 1000; ++i) {
+    ASSERT_LT(vf::detail::uniform_below(rng, big), big);
+  }
+}
+
 TEST(Rng, UniformMeanIsPlausible) {
   // Loose statistical sanity check; the stream is deterministic, so this never flakes.
   Xoshiro256ss rng(99);

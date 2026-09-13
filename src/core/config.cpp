@@ -36,6 +36,16 @@ double HnswParams::level_multiplier() const noexcept {
   return 1.0 / std::log(static_cast<double>(M));
 }
 
+Status SearchParams::validate() const {
+  if (k < 1 || k > kMaxK) {
+    return Status::invalid_argument(range_message("k", k, 1, kMaxK));
+  }
+  if (ef_search && (*ef_search < 1 || *ef_search > HnswParams::kMaxEf)) {
+    return Status::invalid_argument(range_message("ef_search", *ef_search, 1, HnswParams::kMaxEf));
+  }
+  return {};
+}
+
 Status CollectionConfig::validate() const {
   if (dim < 1 || dim > kMaxDim) {
     return Status::invalid_argument(range_message("dim", dim, 1, kMaxDim));

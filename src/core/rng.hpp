@@ -13,6 +13,7 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <concepts>
 #include <cstdint>
 #include <limits>
 
@@ -90,6 +91,37 @@ class Xoshiro256ss {
 // Maps 64 random bits to a double in (0, 1]. Never returns 0, so std::log() of it is finite.
 [[nodiscard]] constexpr double to_unit_interval_open_zero(std::uint64_t bits) noexcept {
   return static_cast<double>((bits >> 11U) + 1U) * 0x1.0p-53;
+}
+
+// High 64 bits of the 128-bit product a * b (portable; MSVC has no unsigned __int128).
+[[nodiscard]] constexpr std::uint64_t mul_high_u64(std::uint64_t a, std::uint64_t b) noexcept {
+  const std::uint64_t a_lo = a & 0xFFFFFFFFULL;
+  const std::uint64_t a_hi = a >> 32U;
+  const std::uint64_t b_lo = b & 0xFFFFFFFFULL;
+  const std::uint64_t b_hi = b >> 32U;
+  const std::uint64_t lo_lo = a_lo * b_lo;
+  const std::uint64_t hi_lo = a_hi * b_lo;
+  const std::uint64_t lo_hi = a_lo * b_hi;
+  const std::uint64_t hi_hi = a_hi * b_hi;
+  const std::uint64_t cross = (lo_lo >> 32U) + (hi_lo & 0xFFFFFFFFULL) + lo_hi;
+  return hi_hi + (hi_lo >> 32U) + (cross >> 32U);
+}
+
+// Unbiased integer in [0, bound) using Lemire's multiply-and-reject method. Precondition: bound >
+// 0.
+template <class Generator>
+  requires std::same_as<typename Generator::result_type, std::uint64_t>
+[[nodiscard]] constexpr std::uint64_t uniform_below(Generator& gen, std::uint64_t bound) noexcept {
+  std::uint64_t x = gen();
+  std::uint64_t low = x * bound;  // low 64 bits of the product
+  if (low < bound) {
+    const std::uint64_t threshold = (std::uint64_t{0} - bound) % bound;  // 2^64 mod bound
+    while (low < threshold) {
+      x = gen();
+      low = x * bound;
+    }
+  }
+  return mul_high_u64(x, bound);
 }
 
 // Uniform float in [lo, hi) computed from 64 random bits in a fully specified way.

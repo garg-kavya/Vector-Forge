@@ -16,7 +16,7 @@ namespace vf {
 
 namespace detail {
 
-Status normalize_inplace(std::span<float> vector, const KernelTable& table) {
+Result<float> inverse_norm(std::span<const float> vector, const KernelTable& table) {
   if (vector.empty()) {
     return Status::invalid_argument("cannot normalize an empty vector");
   }
@@ -31,6 +31,15 @@ Status normalize_inplace(std::span<float> vector, const KernelTable& table) {
   if (!std::isfinite(scale)) {
     return Status::invalid_argument("vector norm is too small to normalize");
   }
+  return scale;
+}
+
+Status normalize_inplace(std::span<float> vector, const KernelTable& table) {
+  const Result<float> scale_or = inverse_norm(vector, table);
+  if (!scale_or.ok()) {
+    return scale_or.status();
+  }
+  const float scale = scale_or.value();
   for (float& x : vector) {
     x *= scale;
   }

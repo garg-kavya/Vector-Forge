@@ -11,7 +11,7 @@ project(
 # ---------------------------------------------------------------------------
 option(VF_BUILD_TESTS "Build unit/integration tests (GoogleTest)" ON)
 option(VF_BUILD_BENCHMARKS "Build micro benchmarks (Google Benchmark)" ON)
-option(VF_BUILD_CLI "Build the vectorforge CLI (Phase 2+)" OFF)
+option(VF_BUILD_CLI "Build the vectorforge CLI" ON)
 option(VF_BUILD_SERVER "Build the HTTP server library (Phase 7)" OFF)
 option(VF_BUILD_PYTHON "Build Python bindings (Phase 8)" OFF)
 option(VF_ENABLE_AVX2 "Compile AVX2+FMA kernels for runtime dispatch (Phase 5)" ON)
@@ -75,6 +75,16 @@ if(GIT_FOUND)
     RESULT_VARIABLE vf_git_rc)
   if(vf_git_rc EQUAL 0 AND vf_git_out)
     set(VF_GIT_SHA "${vf_git_out}")
+    # Mark builds configured from a modified working tree (evaluated at configure time).
+    execute_process(
+      COMMAND "${GIT_EXECUTABLE}" status --porcelain
+      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+      OUTPUT_VARIABLE vf_git_status
+      ERROR_QUIET
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(vf_git_status)
+      string(APPEND VF_GIT_SHA "-dirty")
+    endif()
   endif()
 endif()
 set(VF_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/include")
@@ -85,8 +95,12 @@ configure_file(include/vectorforge/version.hpp.in "${VF_GENERATED_INCLUDE_DIR}/v
 # ---------------------------------------------------------------------------
 add_subdirectory(src)
 
-if(VF_BUILD_TESTS OR VF_BUILD_BENCHMARKS)
+if(VF_BUILD_TESTS OR VF_BUILD_BENCHMARKS OR VF_BUILD_CLI)
   include(Dependencies)
+endif()
+
+if(VF_BUILD_CLI)
+  add_subdirectory(apps/cli)
 endif()
 
 if(VF_BUILD_TESTS)
@@ -98,7 +112,7 @@ if(VF_BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
 endif()
 
-foreach(vf_future IN ITEMS VF_BUILD_CLI VF_BUILD_SERVER VF_BUILD_PYTHON)
+foreach(vf_future IN ITEMS VF_BUILD_SERVER VF_BUILD_PYTHON)
   if(${vf_future})
     message(STATUS "${vf_future}=ON has no effect yet (component not implemented in this phase)")
   endif()

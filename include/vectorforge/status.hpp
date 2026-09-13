@@ -8,6 +8,7 @@
 // error is a programming bug and terminates the process with a diagnostic.
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -34,11 +35,31 @@ enum class ErrorCode : std::uint8_t {
 // Stable, upper-snake-case name used in logs and in the HTTP API ("DIMENSION_MISMATCH").
 [[nodiscard]] std::string_view to_string(ErrorCode code) noexcept;
 
+// An OK Status holds no heap state, so constructing, returning and checking one never allocates
+// (the message lives behind a pointer that is only set for errors). Hot paths rely on this.
 class [[nodiscard]] Status {
  public:
   // Default-constructed Status is OK.
   Status() noexcept = default;
-  Status(ErrorCode code, std::string message) : code_(code), message_(std::move(message)) {}
+  Status(ErrorCode code, std::string message)
+      : code_(code),
+        message_(code == ErrorCode::Ok && message.empty()
+                     ? nullptr
+                     : std::make_unique<const std::string>(std::move(message))) {}
+
+  Status(const Status& other)
+      : code_(other.code_),
+        message_(other.message_ ? std::make_unique<const std::string>(*other.message_) : nullptr) {}
+  Status& operator=(const Status& other) {
+    if (this != &other) {
+      Status copy(other);
+      *this = std::move(copy);
+    }
+    return *this;
+  }
+  Status(Status&&) noexcept = default;
+  Status& operator=(Status&&) noexcept = default;
+  ~Status() = default;
 
   [[nodiscard]] static Status ok_status() noexcept { return {}; }
   [[nodiscard]] static Status invalid_argument(std::string message) {
@@ -77,18 +98,22 @@ class [[nodiscard]] Status {
 
   [[nodiscard]] bool ok() const noexcept { return code_ == ErrorCode::Ok; }
   [[nodiscard]] ErrorCode code() const noexcept { return code_; }
-  [[nodiscard]] const std::string& message() const noexcept { return message_; }
+  [[nodiscard]] const std::string& message() const noexcept {
+    return message_ ? *message_ : empty_message();
+  }
 
   // "OK" or "CODE: message".
   [[nodiscard]] std::string to_string() const;
 
   friend bool operator==(const Status& lhs, const Status& rhs) noexcept {
-    return lhs.code_ == rhs.code_ && lhs.message_ == rhs.message_;
+    return lhs.code_ == rhs.code_ && lhs.message() == rhs.message();
   }
 
  private:
+  [[nodiscard]] static const std::string& empty_message() noexcept;
+
   ErrorCode code_ = ErrorCode::Ok;
-  std::string message_;
+  std::unique_ptr<const std::string> message_;
 };
 
 namespace detail {
