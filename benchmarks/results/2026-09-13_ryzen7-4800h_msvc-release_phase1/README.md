@@ -13,7 +13,7 @@ aggregates only; host name and local executable path redacted).
 | Compiler | MSVC 19.50.35728 (VS Build Tools 2026), `msvc-release` preset (`/O2`, no `/arch`, no LTO) |
 | Library | Google Benchmark 1.9.5 |
 | SIMD tier | scalar (`vf_simd_level` in JSON context) |
-| Source | Phase 1 commit (JSON `vf_git_sha` shows the parent `e0f452ee60ca` because the binary was built from the working tree immediately before committing Phase 1; no source changes after the run besides this README) |
+| Source | commit `9ba5aa828d45` (Phase 1), clean working tree; matches `vf_git_sha` in the JSON context. Run at 2026-09-13T18:44+05:30 |
 
 ## Reproduce
 
@@ -30,12 +30,12 @@ out\build\msvc-release\benchmarks\vf_micro_bench.exe --benchmark_filter="Bench(D
 
 | dim | dot scalar | dot autovec | l2sq scalar | l2sq autovec |
 |---|---|---|---|---|
-| 128 | 69.2 ns | 11.4 ns | 72.4 ns | 13.6 ns |
-| 768 | 519.3 ns | 69.6 ns | 528.5 ns | 76.9 ns |
-| 1536 | 1060.5 ns | 137.7 ns | 1068.4 ns | 145.3 ns |
+| 128 | 69.1 ns | 11.4 ns | 73.4 ns | 13.8 ns |
+| 768 | 519.0 ns | 69.9 ns | 528.2 ns | 76.1 ns |
+| 1536 | 1058.8 ns | 138.5 ns | 1068.2 ns | 144.3 ns |
 
-`l2sq_1_to_n` over 1 024 rows: 74.2 µs (scalar) vs 74.3 µs (autovec) at d=128; 547.2 vs 548.2 µs at
-d=768; 1144.5 vs 1135.5 µs at d=1536.
+`l2sq_1_to_n` over 1 024 rows: 73.7 µs (scalar) vs 73.9 µs (autovec) at d=128; 546.8 vs 549.8 µs at
+d=768; 1136.2 vs 1121.2 µs at d=1536.
 
 ## Observations (this machine and compiler only)
 
@@ -45,10 +45,12 @@ d=768; 1144.5 vs 1135.5 µs at d=1536.
    scalar loop at d ≥ 100 (baseline SSE2 target). Any hand-written AVX2 kernel in Phase 5 must be compared
    against this variant, not only against the strict scalar oracle.
 3. **The auto-vectorised batch kernel did not vectorise**: `scalar_autovec::l2sq_1_to_n` is no faster than
-   scalar. After inlining the pairwise kernel into the row loop, MSVC did not vectorise the inner reduction.
-   This shows how fragile relying on auto-vectorisation is; Phase 5 will investigate (e.g. `noinline`
-   pairwise call or explicit kernels) and re-measure.
-4. Aligned vs one-float-offset inputs show no meaningful difference for these scalar/SSE2 variants.
+   scalar. Likely cause (not yet confirmed from the generated code): once the pairwise kernel is inlined
+   into the row loop, MSVC no longer vectorises the inner reduction. This shows how fragile relying on
+   auto-vectorisation is; Phase 5 will inspect the disassembly and re-measure.
+4. Aligned vs one-float-offset inputs differ by at most 4.9% across all cases (median vs median), within
+   the same range as differences between repeated runs of this suite on this laptop; no alignment effect
+   is claimed.
 5. GCC/Clang results may differ substantially (`-fopenmp-simd` path); they were not benchmarked in this run.
 
 These numbers are a baseline for later comparisons on the same machine, not a performance claim.
