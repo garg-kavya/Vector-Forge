@@ -52,13 +52,6 @@ void IdMap::rollback(const Reservation& reservation) noexcept {
   }
 }
 
-void IdMap::rollback_appended(const Reservation& reservation, InternalId internal) noexcept {
-  VF_ASSERT(internal == labels_.size(), "IdMap::rollback_appended: labels out of order");
-  static_cast<void>(internal);  // only checked in debug builds
-  rollback(reservation);
-  labels_.push_back(reservation.external);
-}
-
 Result<InternalId> IdMap::erase(ExternalId external) {
   const auto it = map_.find(external);
   if (it == map_.end() || it->second.current == kInvalidInternalId) {

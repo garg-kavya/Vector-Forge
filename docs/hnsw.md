@@ -120,6 +120,8 @@ non-empty and has the top level. `reachability()` runs a BFS per level from the 
 | `test_hnsw_determinism` | same seed ⇒ same graph and results (also with different chunking); golden fingerprints |
 | `test_hnsw_recall` (integration) | N = 10 000 clustered, d ∈ {16, 128}, L2/IP/cosine: validator, reachability, recall@10 monotone in `ef`, frozen thresholds |
 | `test_zero_alloc_search` | HNSW `search_into` allocates nothing after warm-up |
+| `test_exception_safety` | every allocation of every insert fails in turn: failed inserts leave the collection unchanged, and all vectors stay findable |
+| `test_concurrent_reads` | 8 threads mixing search, search_into, search_batch, get, contains and stats get the single-threaded results (run under TSan) |
 
 ### Test thresholds
 

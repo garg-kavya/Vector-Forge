@@ -32,12 +32,20 @@ jobs:
           - name: Clang 18 ASan+UBSan
             preset: linux-clang-asan-ubsan
             cxx: clang++-18
+          - name: Clang 18 TSan
+            preset: linux-clang-tsan
+            cxx: clang++-18
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build g++-14 clang-18
+      - name: Limit mmap randomisation for TSan
+        if: matrix.preset == 'linux-clang-tsan'
+        # LLVM 18 TSan aborts with "unexpected memory mapping" under the runner kernel's default
+        # 32-bit mmap entropy.
+        run: sudo sysctl vm.mmap_rnd_bits=28
       - name: Configure
         run: cmake --preset ${{ matrix.preset }} -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
       - name: Build

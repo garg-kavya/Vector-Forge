@@ -75,8 +75,8 @@ class Collection {
   // Inserts ids.size() vectors given row-major in `rows`. The whole batch is validated before any
   // mutation (sizes, values, duplicate ids within the batch, existing ids unless upsert), so
   // validation errors leave the collection unchanged. Returns the number of vectors inserted.
-  // A failure after validation (index error) returns the error; rows before it stay inserted.
-  // std::bad_alloc propagates with the same partial-insert semantics.
+  // A failure after validation (index error) returns the error; rows before it stay inserted and
+  // the failing row leaves no trace. std::bad_alloc propagates with the same semantics.
   [[nodiscard]] Result<std::size_t> add_batch(std::span<const ExternalId> ids,
                                               std::span<const float> rows,
                                               InsertOptions options = {});

@@ -58,8 +58,11 @@ Status HnswBackend::add(InternalId id) {
   SearchContext& context = build_context_;
   context.prepare(static_cast<std::size_t>(graph_.node_count()), params_.ef_construction);
   const std::uint8_t top = std::min(level, entry.level);
+  // Sized independently: if one resize throws, the next add() must not assume the other grew.
   if (layer_candidates_.size() <= top) {
     layer_candidates_.resize(static_cast<std::size_t>(top) + 1);
+  }
+  if (layer_selected_.size() <= top) {
     layer_selected_.resize(static_cast<std::size_t>(top) + 1);
   }
 

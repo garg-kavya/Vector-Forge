@@ -46,6 +46,8 @@ class IndexBackend {
   [[nodiscard]] virtual IndexType type() const noexcept = 0;
 
   // Indexes row `id`, which has been appended to the vector store (id == store.size() - 1).
+  // Strong guarantee: on an error Status or an exception the backend is unchanged, so the caller
+  // can undo the append.
   [[nodiscard]] virtual Status add(InternalId id) = 0;
 
   // Notifies that row `id` was tombstoned.

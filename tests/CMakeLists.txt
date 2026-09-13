@@ -42,16 +42,35 @@ gtest_discover_tests(vf_unit_tests
   PROPERTIES LABELS unit)
 
 # Allocation tests: separate binary because it replaces the global operator new/delete -----------
-add_executable(vf_alloc_tests
-  alloc/counting_allocator.cpp
-  alloc/test_zero_alloc_search.cpp
+# ThreadSanitizer's runtime defines the global allocation functions itself, so the replacement
+# cannot link there; these tests run in every other configuration.
+if(NOT VF_SANITIZE MATCHES "thread")
+  add_executable(vf_alloc_tests
+    alloc/counting_allocator.cpp
+    alloc/test_exception_safety.cpp
+    alloc/test_zero_alloc_search.cpp
+  )
+  target_link_libraries(vf_alloc_tests PRIVATE vectorforge::vectorforge GTest::gtest_main)
+  target_include_directories(vf_alloc_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+  vf_set_project_options(vf_alloc_tests)
+  gtest_discover_tests(vf_alloc_tests
+    DISCOVERY_MODE PRE_TEST
+    PROPERTIES LABELS unit)
+endif()
+
+# Concurrency tests (meaningful under TSan: linux-clang-tsan preset) ---------------------------
+find_package(Threads REQUIRED)
+add_executable(vf_concurrency_tests
+  concurrency/test_concurrent_reads.cpp
 )
-target_link_libraries(vf_alloc_tests PRIVATE vectorforge::vectorforge GTest::gtest_main)
-target_include_directories(vf_alloc_tests PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
-vf_set_project_options(vf_alloc_tests)
-gtest_discover_tests(vf_alloc_tests
+target_link_libraries(vf_concurrency_tests
+  PRIVATE vectorforge::vectorforge GTest::gtest_main Threads::Threads)
+target_include_directories(vf_concurrency_tests
+  PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+vf_set_project_options(vf_concurrency_tests)
+gtest_discover_tests(vf_concurrency_tests
   DISCOVERY_MODE PRE_TEST
-  PROPERTIES LABELS unit)
+  PROPERTIES LABELS concurrency)
 
 # Integration tests ---------------------------------------------------------------------------
 add_executable(vf_index_integration_tests

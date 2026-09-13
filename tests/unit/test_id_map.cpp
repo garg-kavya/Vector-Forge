@@ -76,18 +76,6 @@ TEST(IdMap, RollbackRestoresPreviousState) {
   EXPECT_TRUE(map2.reserve(9, true).ok());
 }
 
-TEST(IdMap, RollbackAppendedLabelsRowButRestoresMapping) {
-  IdMap map;
-  map.reserve_capacity(3);
-  static_cast<void>(map.commit(map.reserve(3, false).value(), 0));
-  auto r = map.reserve(4, false);
-  map.rollback_appended(r.value(), 1);
-  EXPECT_FALSE(map.contains(4));
-  EXPECT_EQ(map.label_count(), 2U);
-  EXPECT_EQ(map.label(1), 4U);
-  EXPECT_EQ(map.size(), 1U);
-}
-
 TEST(IdMap, Erase) {
   IdMap map;
   map.reserve_capacity(2);

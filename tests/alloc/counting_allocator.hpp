@@ -17,4 +17,19 @@ class AllocationCounter {
   [[nodiscard]] std::size_t count() const noexcept;
 };
 
+// While alive, the allocation with zero-based index `fail_at` (counting from construction) throws
+// std::bad_alloc instead of allocating (nothrow forms return nullptr). Later allocations succeed.
+class AllocationFailure {
+ public:
+  explicit AllocationFailure(std::size_t fail_at) noexcept;
+  AllocationFailure(const AllocationFailure&) = delete;
+  AllocationFailure& operator=(const AllocationFailure&) = delete;
+  AllocationFailure(AllocationFailure&&) = delete;
+  AllocationFailure& operator=(AllocationFailure&&) = delete;
+  ~AllocationFailure();
+
+  // True if the injected failure happened.
+  [[nodiscard]] bool triggered() const noexcept;
+};
+
 }  // namespace vf::test

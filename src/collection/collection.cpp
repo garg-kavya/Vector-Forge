@@ -57,11 +57,11 @@ std::size_t run_query(const CollectionState& state, const QueryView& view, const
 }
 
 // Inserts an already validated (and, for normalised collections, already normalised) row whose id
-// reservation is held. On success consumes the reservation.
+// reservation is held. On success consumes the reservation; on any error or exception releases it
+// and leaves the collection unchanged (strong guarantee).
 Status insert_reserved(CollectionState& state, const IdMap::Reservation& reservation,
                        std::span<const float> row) {
-  // Pre-allocate everything that commit needs so that after the row is appended nothing can fail
-  // with an exception (strong guarantee).
+  // Pre-allocate everything that commit needs so that after indexing nothing can fail.
   try {
     state.ids.reserve_capacity(1);
     state.deleted.ensure_size(state.vectors.size() + 1);
@@ -84,17 +84,19 @@ Status insert_reserved(CollectionState& state, const IdMap::Reservation& reserva
   }
   const InternalId internal = appended.value();
 
+  // Backends provide the strong guarantee for add(), so undoing the append keeps row ids and
+  // backend node ids aligned (HNSW requires node id == row id).
   Status indexed;
   try {
     indexed = state.backend->add(internal);
   } catch (...) {
-    state.ids.rollback_appended(reservation, internal);
-    state.deleted.set(internal);
+    state.vectors.pop_back();
+    state.ids.rollback(reservation);
     throw;
   }
   if (!indexed.ok()) {
-    state.ids.rollback_appended(reservation, internal);
-    state.deleted.set(internal);
+    state.vectors.pop_back();
+    state.ids.rollback(reservation);
     return indexed;
   }
 

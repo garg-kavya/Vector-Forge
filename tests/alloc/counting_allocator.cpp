@@ -16,10 +16,22 @@ namespace {
 
 std::atomic<bool> g_counting{false};
 std::atomic<std::size_t> g_allocations{0};
+std::atomic<bool> g_injecting{false};
+std::atomic<std::size_t> g_until_failure{0};
+std::atomic<bool> g_failed{false};
 
-void note() noexcept {
+// Counts the allocation and throws std::bad_alloc if it is the injected failure.
+void note() {
   if (g_counting.load(std::memory_order_relaxed)) {
     g_allocations.fetch_add(1, std::memory_order_relaxed);
+  }
+  if (g_injecting.load(std::memory_order_relaxed)) {
+    if (g_until_failure.load(std::memory_order_relaxed) == 0) {
+      g_injecting.store(false);
+      g_failed.store(true);
+      throw std::bad_alloc();
+    }
+    g_until_failure.fetch_sub(1, std::memory_order_relaxed);
   }
 }
 
@@ -70,6 +82,20 @@ AllocationCounter::~AllocationCounter() {
 
 std::size_t AllocationCounter::count() const noexcept {
   return g_allocations.load();
+}
+
+AllocationFailure::AllocationFailure(std::size_t fail_at) noexcept {
+  g_failed.store(false);
+  g_until_failure.store(fail_at);
+  g_injecting.store(true);
+}
+
+AllocationFailure::~AllocationFailure() {
+  g_injecting.store(false);
+}
+
+bool AllocationFailure::triggered() const noexcept {
+  return g_failed.load();
 }
 
 }  // namespace vf::test

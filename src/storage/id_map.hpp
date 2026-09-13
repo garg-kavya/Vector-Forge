@@ -46,10 +46,6 @@ class IdMap {
   // Cancels a reservation, restoring the previous mapping.
   void rollback(const Reservation& reservation) noexcept;
 
-  // Cancels a reservation whose row was already appended at `internal`: the label is recorded (so
-  // the row stays labelled) but the key mapping is restored. The caller must tombstone `internal`.
-  void rollback_appended(const Reservation& reservation, InternalId internal) noexcept;
-
   // Removes a committed mapping and returns the internal id it pointed to.
   // Errors: NotFound.
   [[nodiscard]] Result<InternalId> erase(ExternalId external);
@@ -64,7 +60,7 @@ class IdMap {
 
   // Number of visible (committed) mappings.
   [[nodiscard]] std::size_t size() const noexcept { return live_; }
-  // Number of labelled rows (== rows appended through commit/rollback_appended).
+  // Number of labelled rows (== rows committed).
   [[nodiscard]] std::size_t label_count() const noexcept { return labels_.size(); }
 
   // Pre-allocates room for `additional` new keys and labels so that commit() cannot allocate.

@@ -1857,6 +1857,12 @@ flowchart LR
   - The HNSW model-based test lives in `test_hnsw_tombstones.cpp`; the recall test is built into
     `vf_index_integration_tests`. `vf_bench` builds through `HnswBackend` directly to expose graph and
     distance counters. The optional external-library comparison was not run.
+  - **Insert exception safety (found in the post-Phase-3 audit):** `IndexBackend::add` provides the strong
+    guarantee, and `Collection` undoes the vector append when it fails (`VectorStore::pop_back`), so row ids and
+    HNSW node ids can never diverge. Verified by allocation-failure injection over every allocation of 400
+    inserts and 40 batches per index type (`tests/alloc/test_exception_safety.cpp`; skipped only under the MSVC
+    debug STL, whose `noexcept` constructors allocate). Concurrent const reads are tested in
+    `vf_concurrency_tests` and ran clean under TSan.
   - `VisitedSet::visit` is branch-free (2.2–3.2× faster in `bench_visited`); the epoch array beats clearing a
     byte array at n = 1M and loses at n = 10K, and stays the default (results in
     `benchmarks/results/2026-09-14_ryzen7-4800h_msvc-release_phase3`). The "insert after load" edge

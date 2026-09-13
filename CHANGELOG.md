@@ -40,6 +40,20 @@ All notable changes to this project are documented here. The format follows
   minimal `vf_bench` (build, ef_search sweep, recall, latency, distance computations, Flat
   comparison). `docs/hnsw.md`.
 
+- Fault-injection tests (`test_exception_safety`): every allocation of every insert fails in turn;
+  failed inserts must leave collections unchanged and fully searchable. Concurrent-read test
+  (`vf_concurrency_tests`) for the const-member thread-safety contract, clean under TSan.
+
+### Fixed
+- A failed or throwing backend `add()` left the appended row behind (tombstoned). For HNSW this
+  desynchronised row ids from graph node ids, so later inserts aborted in debug builds and indexed
+  the wrong vectors in release builds. Collections now undo the append (`VectorStore::pop_back`),
+  giving `add` the documented strong guarantee; `IdMap::rollback_appended` was removed.
+- `HnswBackend::add` could index past the end of its per-level scratch after an allocation failure
+  between two scratch resizes.
+- The `linux-clang-tsan` preset failed to link: the allocation-test binary replaces the global
+  `operator new`, which ThreadSanitizer's runtime also defines. That binary is now skipped under TSan.
+
 ### Changed
 - `Collection::create` accepts `IndexType::Hnsw` (previously `FailedPrecondition`).
 - `IndexBackend::search` may throw `std::bad_alloc` (growing HNSW search contexts).

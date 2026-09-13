@@ -56,6 +56,14 @@ class VectorStore {
   // Throws std::bad_alloc if a new chunk cannot be allocated (the store is unchanged).
   [[nodiscard]] Result<InternalId> append(std::span<const float> row);
 
+  // Removes the last row (undoes the most recent append; chunk memory is kept for reuse).
+  // Precondition: !empty() and no reader still uses that row. Phase 6b must revisit this for
+  // concurrent readers.
+  void pop_back() noexcept {
+    VF_ASSERT(size_ > 0, "VectorStore::pop_back on empty store");
+    --size_;
+  }
+
   // Ensures capacity() >= rows by allocating chunks up front.
   // Errors: ResourceExhausted if rows > max_rows(). Throws std::bad_alloc.
   [[nodiscard]] Status reserve(std::uint64_t rows);

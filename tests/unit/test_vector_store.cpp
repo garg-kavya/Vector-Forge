@@ -140,6 +140,24 @@ TEST(VectorStore, Reserve) {
   EXPECT_EQ(store.chunk_count(), 3U);
 }
 
+TEST(VectorStore, PopBackUndoesLastAppend) {
+  constexpr std::uint32_t kDim = 3;
+  VectorStore store = make_store(kDim, 2);
+  for (std::uint64_t i = 0; i < 3; ++i) {
+    ASSERT_TRUE(store.append(row_for(i, kDim)).ok());
+  }
+  const float* p2 = store.row_ptr(2);
+  store.pop_back();  // removes the only row of the second chunk; the chunk is kept
+  EXPECT_EQ(store.size(), 2U);
+  EXPECT_EQ(store.chunk_count(), 2U);
+  const auto id = store.append(row_for(9, kDim));
+  ASSERT_TRUE(id.ok());
+  EXPECT_EQ(id.value(), 2U) << "the next append reuses the id";
+  EXPECT_EQ(store.row_ptr(2), p2) << "and the same storage";
+  EXPECT_EQ(std::vector<float>(store.row(2).begin(), store.row(2).end()), row_for(9, kDim));
+  EXPECT_EQ(std::vector<float>(store.row(1).begin(), store.row(1).end()), row_for(1, kDim));
+}
+
 TEST(VectorStore, MutableRow) {
   VectorStore store = make_store(3, 4);
   ASSERT_TRUE(store.append(std::vector<float>{1.0F, 2.0F, 3.0F}).ok());

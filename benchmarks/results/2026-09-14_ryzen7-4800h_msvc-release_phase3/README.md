@@ -22,7 +22,7 @@ Raw data (host name and local executable path redacted from the Google Benchmark
 | Compiler | MSVC 19.50.35728, `msvc-release` preset (`/O2`, no `/arch`, no LTO) |
 | SIMD tier | scalar |
 | Threads | 1 (build and queries) |
-| Source | `vf_git_sha` = `fa54bc14455d-dirty`: the working tree that became the Phase 3 commit (parent `fa54bc1` plus the Phase 3 changes); only formatting-neutral documentation changed after the runs |
+| Source | `vf_git_sha` = `fa54bc14455d-dirty`: the working tree that became the Phase 3 commit `99fdd11` (parent `fa54bc1` plus the Phase 3 changes). The later audit fix only changed insert failure paths (undoing an append when indexing throws), which these successful builds and queries never execute |
 
 **Protocol (minimal, Phase 3):** one process per configuration, **one run each** (no repetitions),
 1 000 queries (200/500 for the IP runs), one unrecorded warm-up pass per `ef_search`, per-query
