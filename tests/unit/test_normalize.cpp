@@ -10,6 +10,8 @@
 
 #include "core/rng.hpp"
 #include "core/vector_ops.hpp"
+#include "simd/cpu_features.hpp"
+#include "simd/dispatch.hpp"
 #include "simd/kernels.hpp"
 #include "support/test_data.hpp"
 
@@ -78,8 +80,13 @@ TEST(Normalize, RejectsNonFinite) {
 }
 
 TEST(Normalize, InternalWorksWithEveryTable) {
-  for (const auto* t :
-       {&vf::detail::scalar_kernel_table(), &vf::detail::scalar_autovec_kernel_table()}) {
+  std::vector<const vf::detail::KernelTable*> tables = {&vf::detail::scalar_kernel_table(),
+                                                        &vf::detail::scalar_autovec_kernel_table()};
+  for (const vf::detail::KernelTable& t :
+       vf::detail::avx2_variant_tables(vf::detail::cpu_features())) {
+    tables.push_back(&t);
+  }
+  for (const vf::detail::KernelTable* t : tables) {
     std::vector<float> v = {3.0F, 4.0F};
     ASSERT_TRUE(vf::detail::normalize_inplace(v, *t).ok());
     EXPECT_FLOAT_EQ(v[0], 0.6F);

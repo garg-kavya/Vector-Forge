@@ -22,6 +22,7 @@
 #include "core/vector_ops.hpp"
 #include "index/flat_backend.hpp"
 #include "index/hnsw/hnsw_backend.hpp"
+#include "simd/dispatch.hpp"
 #include "simd/kernels.hpp"
 #include "storage/atomic_file.hpp"
 #include "storage/mapped_file.hpp"
@@ -190,6 +191,7 @@ Status Collection::save(const std::filesystem::path& file) const {
 
 Result<std::unique_ptr<Collection>> Collection::create(const CollectionConfig& config) {
   VF_RETURN_IF_ERROR(config.validate());
+  VF_RETURN_IF_ERROR(detail::kernel_selection().status);
   Result<detail::VectorStore> store = detail::VectorStore::create({.dim = config.dim});
   if (!store.ok()) {
     return store.status();

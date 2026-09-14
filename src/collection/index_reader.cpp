@@ -19,6 +19,7 @@
 #include "index/flat_backend.hpp"
 #include "index/hnsw/hnsw_backend.hpp"
 #include "index/hnsw/hnsw_io.hpp"
+#include "simd/dispatch.hpp"
 #include "simd/kernels.hpp"
 #include "storage/crc32c.hpp"
 
@@ -401,6 +402,9 @@ Result<std::unique_ptr<CollectionState>> read_index(std::span<const std::byte> f
   config.hnsw.max_level = m.max_level_cap;
   config.hnsw.seed = m.seed;
 
+  if (const Status& simd = kernel_selection().status; !simd.ok()) {
+    return simd;
+  }
   const KernelTable& kernels = detail::kernels();
   auto state = std::make_unique<CollectionState>(config, std::move(store_or).value(), kernels);
   state->ids = std::move(ids).value();

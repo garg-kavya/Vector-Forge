@@ -54,6 +54,20 @@ endif()
 
 vf_set_project_options(vectorforge)
 
+# AVX2 + FMA kernels: the only library translation unit with non-baseline instruction-set flags,
+# built as an object library so the flags cannot reach other sources (docs/simd.md).
+vf_avx2_kernels_enabled(VF_AVX2_KERNELS)
+set(VF_AVX2_KERNELS ${VF_AVX2_KERNELS} CACHE INTERNAL "AVX2 kernels are compiled into vectorforge")
+if(VF_AVX2_KERNELS)
+  add_library(vf_simd_avx2 OBJECT simd/kernels_avx2.cpp)
+  target_include_directories(vf_simd_avx2 PRIVATE ${PROJECT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
+  vf_set_project_options(vf_simd_avx2)
+  vf_avx2_compile_options(vf_avx2_flags)
+  target_compile_options(vf_simd_avx2 PRIVATE ${vf_avx2_flags})
+  target_sources(vectorforge PRIVATE $<TARGET_OBJECTS:vf_simd_avx2>)
+  target_compile_definitions(vectorforge PRIVATE VF_HAVE_AVX2_KERNELS=1)
+endif()
+
 # Floating-point semantics per kernel translation unit (see cmake/SimdFlags.cmake).
 vf_set_strict_fp_source(simd/kernels_scalar.cpp)
 vf_set_autovec_source(simd/kernels_scalar_autovec.cpp)

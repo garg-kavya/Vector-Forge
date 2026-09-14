@@ -11,7 +11,7 @@
 #include <cstddef>
 #include <string_view>
 
-#include <vectorforge/simd.hpp>
+#include <vectorforge/simd_level.hpp>
 
 namespace vf::detail {
 
@@ -58,7 +58,38 @@ void l2sq_1_to_n(const float* query, const float* rows, std::size_t n, std::size
 [[nodiscard]] const KernelTable& scalar_kernel_table() noexcept;
 [[nodiscard]] const KernelTable& scalar_autovec_kernel_table() noexcept;
 
-// Kernel table selected for this process (Phase 1: always scalar).
+// Kernel table selected for this process (simd/dispatch.hpp). If the selection failed (invalid or
+// unsupported VF_SIMD request) this is the scalar table, and public entry points report the error.
 [[nodiscard]] const KernelTable& kernels() noexcept;
+
+// AVX2 + FMA kernels (kernels_avx2.cpp, compiled only when VF_HAVE_AVX2_KERNELS is defined).
+// Callers must check that the CPU and OS support AVX2 and FMA before calling any of them. Variants:
+// acc4 (four accumulators, scalar tail), acc1 (one accumulator, scalar tail), acc4_masked (four
+// accumulators, masked-load tail).
+namespace avx2 {
+float dot_acc4(const float* a, const float* b, std::size_t dim) noexcept;
+float l2sq_acc4(const float* a, const float* b, std::size_t dim) noexcept;
+float norm2_acc4(const float* a, std::size_t dim) noexcept;
+void dot_1_to_n_acc4(const float* query, const float* rows, std::size_t n, std::size_t dim,
+                     float* out) noexcept;
+void l2sq_1_to_n_acc4(const float* query, const float* rows, std::size_t n, std::size_t dim,
+                      float* out) noexcept;
+
+float dot_acc1(const float* a, const float* b, std::size_t dim) noexcept;
+float l2sq_acc1(const float* a, const float* b, std::size_t dim) noexcept;
+float norm2_acc1(const float* a, std::size_t dim) noexcept;
+void dot_1_to_n_acc1(const float* query, const float* rows, std::size_t n, std::size_t dim,
+                     float* out) noexcept;
+void l2sq_1_to_n_acc1(const float* query, const float* rows, std::size_t n, std::size_t dim,
+                      float* out) noexcept;
+
+float dot_acc4_masked(const float* a, const float* b, std::size_t dim) noexcept;
+float l2sq_acc4_masked(const float* a, const float* b, std::size_t dim) noexcept;
+float norm2_acc4_masked(const float* a, std::size_t dim) noexcept;
+void dot_1_to_n_acc4_masked(const float* query, const float* rows, std::size_t n, std::size_t dim,
+                            float* out) noexcept;
+void l2sq_1_to_n_acc4_masked(const float* query, const float* rows, std::size_t n, std::size_t dim,
+                             float* out) noexcept;
+}  // namespace avx2
 
 }  // namespace vf::detail

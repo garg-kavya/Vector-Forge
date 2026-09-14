@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <vectorforge/collection.hpp>
+#include <vectorforge/simd.hpp>
 
 #include "collection/collection_factory.hpp"
 #include "collection/index_file.hpp"
@@ -77,7 +78,8 @@ Status run_info(const std::filesystem::path& index, std::ostream& log) {
     log << "  load failed: " << loaded.status().to_string() << "\n";
     return loaded.status();
   }
-  log << "  loads (mmap, metadata checksums) in " << open_timer.elapsed_seconds() << " s\n";
+  log << "  loads (mmap, metadata checksums) in " << open_timer.elapsed_seconds()
+      << " s, simd tier " << to_string(active_simd_level()) << "\n";
   if (const detail::HnswGraph* graph = graph_of(*loaded.value())) {
     const std::vector<std::uint64_t> histogram = detail::HnswValidator(*graph).level_histogram();
     log << "  level histogram:";

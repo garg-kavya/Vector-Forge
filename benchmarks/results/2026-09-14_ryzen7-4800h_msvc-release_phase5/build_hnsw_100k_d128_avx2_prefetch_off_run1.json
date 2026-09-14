@@ -1,0 +1,12 @@
+{
+  "schema": 1, "suite": "hnsw-sweep-minimal",
+  "git": {"sha": "a32559d829b4-dirty"},
+  "machine": {"cpu": "AMD Ryzen 7 4800H with Radeon Graphics"},
+  "build": {"compiler": "MSVC 19.50.35728.0", "type": "Release", "simd_tier": "avx2", "kernel_table": "avx2"},
+  "dataset": {"distribution": "gmm", "n": 100000, "queries": 200, "dim": 128, "metric": "l2", "clusters": 100, "spread": 0.1, "seed": 1},
+  "params": {"index": "hnsw", "M": 16, "ef_construction": 200, "k": 10, "selection": "heuristic", "repair_orphans": true, "prefetch": false, "index_file": false, "threads": 1},
+  "build_result": {"seconds": 17.3278, "distance_computations": 322661416, "orphan_repairs": 0, "orphans_unrepaired": 0, "index_bytes": 18773518, "invariants_ok": true, "unreachable_level0": 0},
+  "sweep": [
+    {"ef_search": 64, "recall_at_k": 0.9895, "recall_min": 0.8, "qps": 10294.8, "latency_us": {"p50": 93.2, "p95": 115.9, "p99": 197.9, "mean": 97.1365, "max": 267.4}, "dist_comps_mean": 873.925}
+  ]
+}

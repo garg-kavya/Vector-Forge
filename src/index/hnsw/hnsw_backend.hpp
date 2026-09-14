@@ -45,6 +45,14 @@ struct HnswBuildOptions {
   std::size_t arena_chunk_words = 0;  // HnswGraph::Options
 };
 
+// Internal query-path switches (benchmarked alternatives; not part of the public API).
+struct HnswSearchOptions {
+  // Before computing distances to a node's neighbours, issue a prefetch hint for each unvisited
+  // neighbour's vector row. Applies to construction searches too. On by default: +13-16% QPS and
+  // -5% build time at d = 768, within run-to-run variation at d = 128 (docs/simd.md "Prefetch").
+  bool prefetch = true;
+};
+
 struct HnswBuildStats {
   std::uint64_t distance_computations = 0;  // during add(), including neighbour selection
   std::uint64_t orphan_repairs = 0;         // levels on which repair_orphans added a link
@@ -83,6 +91,9 @@ class HnswBackend final : public IndexBackend {
   [[nodiscard]] const HnswGraph& graph() const noexcept { return graph_; }
   [[nodiscard]] const HnswParams& params() const noexcept { return params_; }
   [[nodiscard]] const HnswBuildStats& build_stats() const noexcept { return build_stats_; }
+  [[nodiscard]] const HnswSearchOptions& search_options() const noexcept { return search_options_; }
+  // Requires exclusive access (no concurrent search or add).
+  void set_search_options(const HnswSearchOptions& options) noexcept { search_options_ = options; }
 
  private:
   HnswBackend(const VectorStore& vectors, const TombstoneSet& deleted, Metric metric,
@@ -124,6 +135,7 @@ class HnswBackend final : public IndexBackend {
   ScoreMode mode_;
   HnswParams params_;
   HnswBuildOptions options_;
+  HnswSearchOptions search_options_;
   LevelGenerator levels_;
   HnswGraph graph_;
   HnswBuildStats build_stats_;

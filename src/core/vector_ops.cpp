@@ -9,6 +9,7 @@
 #include <vectorforge/types.hpp>
 
 #include "core/validation.hpp"
+#include "simd/dispatch.hpp"
 #include "simd/kernels.hpp"
 #include "simd/metric_distance.hpp"
 
@@ -65,6 +66,7 @@ Result<float> distance(Metric metric, std::span<const float> a, std::span<const 
     return Status::invalid_argument("vector contains a NaN, infinite or out-of-range component");
   }
 
+  VF_RETURN_IF_ERROR(detail::kernel_selection().status);
   const detail::KernelTable& table = detail::kernels();
   if (metric != Metric::Cosine) {
     return detail::metric_distance(table, metric, a.data(), b.data(), a.size());
@@ -90,6 +92,7 @@ Status normalize(std::span<float> vector) {
     return Status::invalid_argument("component " + std::to_string(bad) +
                                     " is NaN, infinite or out of range");
   }
+  VF_RETURN_IF_ERROR(detail::kernel_selection().status);
   return detail::normalize_inplace(vector, detail::kernels());
 }
 

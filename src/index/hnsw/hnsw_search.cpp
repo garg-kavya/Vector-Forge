@@ -6,6 +6,7 @@
 #include <span>
 
 #include "core/assert.hpp"
+#include "core/prefetch.hpp"
 #include "index/hnsw/hnsw_backend.hpp"
 
 namespace vf::detail {
@@ -57,6 +58,13 @@ BoundedMaxHeap<ScoredId> HnswBackend::search_layer(SearchContext& context, const
     }
     context.candidates.pop();
     const LinkView links = graph_.links(nearest.id, level);
+    if (search_options_.prefetch) {
+      for (std::uint32_t i = 0; i < links.size(); ++i) {
+        if (!context.visited.visited(links[i])) {
+          prefetch_read(vectors_->row_ptr(links[i]));
+        }
+      }
+    }
     for (std::uint32_t i = 0; i < links.size(); ++i) {
       const InternalId neighbor = links[i];
       if (!context.visited.visit(neighbor)) {

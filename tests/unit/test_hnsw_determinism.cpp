@@ -1,7 +1,8 @@
 // Single-threaded HNSW builds are deterministic (docs/DESIGN.md §9.2, §15.3): same data, parameters
 // and seed give an identical graph (compared through its canonical encoding) and identical search
-// results. The golden fingerprint pins the result across compilers and standard libraries: data,
-// level assignment and scalar kernels are all bit-reproducible.
+// results. The golden fingerprints pin the result across compilers and standard libraries for each
+// kernel tier: data, level assignment and every tier's kernels are bit-reproducible, but tiers sum
+// in different orders, so determinism is claimed per (tier, single thread) (docs/simd.md).
 
 #include <gtest/gtest.h>
 
@@ -9,6 +10,8 @@
 #include <cstdint>
 #include <span>
 #include <vector>
+
+#include <vectorforge/simd.hpp>
 
 #include "support/hnsw_fixture.hpp"
 #include "support/test_data.hpp"
@@ -43,10 +46,12 @@ struct Build {
   std::vector<std::vector<Neighbor>> results;
 };
 
-Build build(Metric metric, std::uint64_t seed, std::size_t nodes_per_chunk = 0) {
+Build build(Metric metric, std::uint64_t seed, std::size_t nodes_per_chunk = 0,
+            bool prefetch = false) {
   const vf::test::ClusteredData data(5, kDim, 16, 0.15F);
   vf::test::HnswFixture f(kDim, metric, params_with_seed(seed),
                           {.nodes_per_chunk = nodes_per_chunk});
+  f.backend->set_search_options({.prefetch = prefetch});
   f.add_rows(data.rows(1, kRows));
   Build b;
   b.graph = f.backend->graph().canonical_bytes();
@@ -70,16 +75,36 @@ TEST(HnswDeterminism, SameSeedSameGraphAndResults) {
   }
 }
 
+TEST(HnswDeterminism, PrefetchDoesNotChangeGraphOrResults) {
+  for (const Metric metric : {Metric::L2, Metric::Cosine}) {
+    SCOPED_TRACE(vf::to_string(metric));
+    const Build plain = build(metric, 99);
+    const Build prefetched = build(metric, 99, 0, true);
+    EXPECT_EQ(plain.graph, prefetched.graph);
+    EXPECT_EQ(plain.results, prefetched.results);
+  }
+}
+
 TEST(HnswDeterminism, DifferentSeedDifferentGraph) {
   EXPECT_NE(build(Metric::L2, 1234).graph, build(Metric::L2, 4321).graph);
 }
 
 TEST(HnswDeterminism, GoldenFingerprint) {
-  // Fingerprints of the canonical graph encoding, recorded from the first implementation and
-  // identical on MSVC 19.50, GCC 13.3, GCC 15.2 and Clang 18. A change means graphs built by
-  // different versions (or platforms) differ; update deliberately and note it in CHANGELOG.md.
-  EXPECT_EQ(fnv1a(build(Metric::L2, 1234).graph), 13976385902449391624ULL);
-  EXPECT_EQ(fnv1a(build(Metric::Cosine, 1234).graph), 6763529789119153829ULL);
+  // Fingerprints of the canonical graph encoding per kernel tier, identical on MSVC 19.50,
+  // GCC 13.3, GCC 15.2 and Clang 18. A change means graphs built by different versions (or
+  // platforms) differ; update deliberately and note it in CHANGELOG.md. The L2 graph happens to be
+  // the same for both tiers (no comparison flips); the cosine graph is not, because normalised
+  // vectors and dot products round differently.
+  switch (vf::active_simd_level()) {
+    case vf::SimdLevel::Scalar:
+      EXPECT_EQ(fnv1a(build(Metric::L2, 1234).graph), 13976385902449391624ULL);
+      EXPECT_EQ(fnv1a(build(Metric::Cosine, 1234).graph), 6763529789119153829ULL);
+      break;
+    case vf::SimdLevel::Avx2:
+      EXPECT_EQ(fnv1a(build(Metric::L2, 1234).graph), 13976385902449391624ULL);
+      EXPECT_EQ(fnv1a(build(Metric::Cosine, 1234).graph), 9920820003002865752ULL);
+      break;
+  }
 }
 
 }  // namespace

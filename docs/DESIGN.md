@@ -1926,6 +1926,28 @@ flowchart LR
   dispatch experiment, prefetch ablation.
 - **Acceptance:** CI runs full tests under both tiers; ISA leak check passes; micro + macro results committed with
   interpretation (including if a variant did *not* help).
+- **Implementation notes (as built):** the complete description is `docs/simd.md`; results in
+  `benchmarks/results/2026-09-14_ryzen7-4800h_msvc-release_phase5`.
+  - Variants `acc4`, `acc1`, `acc4_masked` are all compiled; the `avx2` tier is `acc4` with a scalar tail
+    (four accumulators: 1.9–2.9× faster than one; the masked tail is at best 5% faster and 23% slower at
+    d = 8/16). The kernels live in `vf::detail::avx2` (not `vf::detail::simd::avx2`); internal-linkage
+    templates are in `simd/avx2_kernels_inline.hpp`, which `#error`s without AVX2 flags.
+  - `VF_SIMD` errors are not raised at process start (a library cannot fail there): the selection is
+    resolved on first use, `kernels()` falls back to the scalar table, and `vf::simd_status()`,
+    `Collection::create/load`, `vf::distance`, `vf::normalize` and every CLI command return the error.
+    `SimdLevel` moved to the dependency-free `vectorforge/simd_level.hpp` so the AVX2 TU includes no
+    header with inline library code.
+  - The ISA leak check allows functions carrying toolchain runtime guards (MSVC `__isa_available`, UCRT
+    `_Avx2WmemEnabled`), because MSVC emits guarded AVX2 loops in baseline objects; it checks exported
+    *functions* of the AVX2 object (MSVC's merged `__ymm@` constants are data).
+  - Dispatch experiment: table dispatch costs 1.1 ns/distance cache-hot and 7.6 ns memory-bound at d = 128
+    against an inlined AVX2 loop, nothing at d = 768 — at most ~7% of an HNSW query, so dispatch stays at
+    the table level. No profiler (uProf/perf) was run; the distance share was estimated from kernel
+    timings × distance counters.
+  - `HnswSearchOptions::prefetch` is on by default (d = 768: +7–16% QPS, −4.7% build time; d = 128 within
+    run-to-run variation). It is an internal backend option, not a public `SearchParams` field.
+  - Golden HNSW fingerprints and determinism claims are per tier (§20 R9). `vf_bench` gained `--simd`,
+    `--prefetch on|off` and `--index-file` for sweeps so A/B runs use one graph.
 
 ### Phase 6a — Thread pool and Level A concurrency
 

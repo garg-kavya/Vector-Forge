@@ -14,6 +14,7 @@
 #include <vector>
 
 #include <vectorforge/collection.hpp>
+#include <vectorforge/simd.hpp>
 
 #include "collection/collection_factory.hpp"
 #include "index/hnsw/hnsw_backend.hpp"
@@ -169,6 +170,20 @@ TEST(GoldenFiles, EmptyHnswInnerProduct) {
     EXPECT_EQ(c.size(), 0U);
     EXPECT_TRUE(search(c, std::vector<float>(7, 1.0F), 3, 0).empty());
     expect_resaves_identically(c, file);
+  }
+}
+
+TEST(GoldenFiles, ReportsSimdSelectionError) {
+  // Run by CTest with an invalid VF_SIMD (simd.load_reports_invalid_request) and in normal runs.
+  const vf::Status simd = vf::simd_status();
+  for (const LoadOptions& mode : kModes) {
+    const auto loaded = Collection::load(kGoldenDir / "v1.0_flat_l2.vfidx", mode);
+    if (simd.ok()) {
+      EXPECT_TRUE(loaded.ok()) << loaded.status().to_string();
+    } else {
+      ASSERT_FALSE(loaded.ok());
+      EXPECT_EQ(loaded.status().code(), simd.code());
+    }
   }
 }
 

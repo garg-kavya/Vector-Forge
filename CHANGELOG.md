@@ -55,6 +55,22 @@ All notable changes to this project are documented here. The format follows
   corpus replay test everywhere). `vf_bench` storage scenarios (save, heap/mmap load).
   CI: Windows MSVC ASan job, fuzz smoke job, nightly 10-minute fuzz workflow.
 
+- Phase 5: SIMD. AVX2 + FMA kernels (`dot`, `l2sq`, `norm2`, 1-to-N) in variants with four or one
+  accumulators and a scalar or masked-load tail, compiled as an isolated object library
+  (`vf_simd_avx2`); the `avx2` tier uses four accumulators with a scalar tail. Runtime tier selection
+  from CPUID/XGETBV with the `VF_SIMD` override (`auto`, `scalar`, `avx2`); invalid or unsupported
+  requests are reported by the new `vf::simd_status()` and by `Collection::create/load`,
+  `vf::distance`, `vf::normalize` and the CLI instead of being downgraded. `vectorforge info` prints
+  the tier. `HnswSearchOptions::prefetch` (on by default) prefetches neighbour rows during HNSW
+  searches. `tools/check_isa_leak.py` (objdump/dumpbin) verifies that AVX instructions stay in the
+  AVX2 object. Tests: every kernel table across dims and offsets, bit-identical alignment
+  independence, symmetry and batch/pairwise equality, tier selection against synthetic CPU features,
+  CTest runs with `VF_SIMD` set to scalar/avx2/invalid, per-tier golden HNSW fingerprints, prefetch
+  result invariance. Benchmarks: kernel variants, dispatch-level experiment (table vs direct vs
+  inlined), `vf_bench --simd` and `--prefetch` A/B on saved index files (`--index-file` for sweeps).
+  CI runs the full test suite on both tiers and the ISA leak check on GCC, Clang and MSVC.
+  `docs/simd.md`, ADR-0002.
+
 - Fault-injection tests (`test_exception_safety`): every allocation of every insert fails in turn;
   failed inserts must leave collections unchanged and fully searchable. Concurrent-read test
   (`vf_concurrency_tests`) for the const-member thread-safety contract, clean under TSan.
@@ -70,6 +86,11 @@ All notable changes to this project are documented here. The format follows
   `operator new`, which ThreadSanitizer's runtime also defines. That binary is now skipped under TSan.
 
 ### Changed
+- The default kernel tier is AVX2 on CPUs that support it (was scalar). Results differ from the
+  scalar tier within floating-point rounding, so HNSW graphs built on different tiers can differ;
+  the cosine golden fingerprint has a separate AVX2 value.
+- `SimdLevel` and `to_string(SimdLevel)` moved to `vectorforge/simd_level.hpp` (still included by
+  `vectorforge/simd.hpp`).
 - `msvc-asan` builds RelWithDebInfo with `VF_ENABLE_ASSERTS=ON` (was Debug), so the allocation
   failure-injection tests also run under MSVC ASan.
 - HNSW back-link shrinking uses an insertion sort that stays well-defined for NaN distances.

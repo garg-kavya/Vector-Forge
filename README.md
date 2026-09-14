@@ -5,13 +5,13 @@ VectorForge is a C++20 vector similarity search engine built from first principl
 distance kernels, a thread pool, a versioned on-disk format with memory-mapped vectors, an HTTP API
 and Python bindings.
 
-> **Status:** early development — Phases 0–4 of the [engineering design](docs/DESIGN.md) are
+> **Status:** early development — Phases 0–5 of the [engineering design](docs/DESIGN.md) are
 > complete: toolchain; core types, deterministic RNG, scalar distance kernels, vector storage; exact
 > (Flat) search, dataset I/O and the `vectorforge gen-data` / `ground-truth` CLI; single-threaded
 > HNSW approximate search ([docs/hnsw.md](docs/hnsw.md)); checksummed, crash-safe persistence with
 > memory-mapped loading and the `build` / `search` / `info` / `verify` CLI
-> ([docs/storage-format.md](docs/storage-format.md)). SIMD kernels, concurrency, HTTP and Python are
-> *planned*, not implemented.
+> ([docs/storage-format.md](docs/storage-format.md)); AVX2 + FMA distance kernels selected at runtime
+> ([docs/simd.md](docs/simd.md)). Concurrency, HTTP and Python are *planned*, not implemented.
 
 ## Quick start (current API)
 
@@ -50,6 +50,12 @@ vectorforge search --index idx.vfidx --queries queries.fvecs --k 10 --ef 100 --g
 The pipeline reads TEXMEX (SIFT-format) `.fvecs` vectors and `.ivecs` ground truth
 (`--gt groundtruth.ivecs`); it is tested with generated files of that format, not with the SIFT1M
 download itself.
+
+Distance kernels use AVX2 + FMA when the CPU supports them and scalar code otherwise; set
+`VF_SIMD=scalar` to force the scalar tier (for example to compare results or timings with the same
+binary). On the development laptop (Ryzen 7 4800H, MSVC, one thread) AVX2 made HNSW queries over
+100 000 × 128-d vectors 1.88× faster at recall 0.991 and Flat scans 2.97× faster
+([results](benchmarks/results/2026-09-14_ryzen7-4800h_msvc-release_phase5/README.md)).
 
 ## Goals
 
@@ -107,7 +113,7 @@ Sanitizer presets: `linux-clang-asan-ubsan`, `linux-clang-tsan`, `linux-clang-fu
 | `VF_BUILD_BENCHMARKS` | ON | Google Benchmark micro benchmarks and `vf_bench` (needs `VF_BUILD_CLI`) |
 | `VF_SANITIZE` | empty | `address`, `address;undefined`, or `thread` |
 | `VF_WARNINGS_AS_ERRORS` | OFF (ON in presets) | treat warnings as errors |
-| `VF_ENABLE_AVX2` | ON | compile AVX2 kernels for runtime dispatch |
+| `VF_ENABLE_AVX2` | ON | compile AVX2 kernels for runtime dispatch (x86-64) |
 | `VF_NATIVE` | OFF | build for the host CPU (benchmark comparisons only) |
 | `VF_ENABLE_ASSERTS` | OFF | keep internal assertions in optimised builds |
 | `VF_BUILD_FUZZERS` | OFF | libFuzzer targets (Clang; preset `linux-clang-fuzz`) |
@@ -121,7 +127,7 @@ apps/cli/              vectorforge command-line tool
 tests/                 GoogleTest suites
 benchmarks/            micro (Google Benchmark) and macro (vf_bench) benchmarks, committed results
 cmake/                 build modules (warnings, sanitizers, SIMD flags, dependencies)
-tools/                 developer scripts
+tools/                 developer scripts (golden files, fuzzing, ISA leak check)
 docs/                  design document and architecture decision records
 ```
 

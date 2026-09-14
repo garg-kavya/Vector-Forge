@@ -23,12 +23,14 @@ jobs:
           - name: GCC 14 Release
             preset: linux-gcc-release
             cxx: g++-14
+            simd_checks: true
           - name: GCC 14 Debug
             preset: linux-gcc-debug
             cxx: g++-14
           - name: Clang 18 Release
             preset: linux-clang-release
             cxx: clang++-18
+            simd_checks: true
           - name: Clang 18 ASan+UBSan
             preset: linux-clang-asan-ubsan
             cxx: clang++-18
@@ -52,6 +54,17 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
+      # Both kernel tiers (docs/simd.md): the run above uses AVX2 on these runners; the checks below
+      # fail if AVX2 is unavailable, re-run every test on the scalar tier and check ISA isolation.
+      - name: Require the AVX2 tier
+        if: matrix.simd_checks
+        run: VF_SIMD=avx2 out/build/${{ matrix.preset }}/apps/cli/vectorforge gen-data --n 1 --dim 8 --out /tmp/vf_simd_probe.npy
+      - name: Test (scalar tier)
+        if: matrix.simd_checks
+        run: VF_SIMD=scalar ctest --preset ${{ matrix.preset }}
+      - name: ISA leak check
+        if: matrix.simd_checks
+        run: python3 tools/check_isa_leak.py out/build/${{ matrix.preset }}
 
   fuzz-smoke:
     name: Linux Clang 18 index reader fuzz (2 min)
@@ -87,3 +100,17 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
+      - name: Require the AVX2 tier
+        if: matrix.preset == 'msvc-release'
+        run: |
+          $env:VF_SIMD = "avx2"
+          out/build/msvc-release/apps/cli/vectorforge.exe gen-data --n 1 --dim 8 --out "$env:RUNNER_TEMP/vf_simd_probe.npy"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Test (scalar tier)
+        if: matrix.preset == 'msvc-release'
+        run: |
+          $env:VF_SIMD = "scalar"
+          ctest --preset msvc-release
+      - name: ISA leak check
+        if: matrix.preset == 'msvc-release'
+        run: python tools/check_isa_leak.py out/build/msvc-release

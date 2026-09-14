@@ -9,6 +9,7 @@ add_executable(vf_unit_tests
   unit/test_cpu_features.cpp
   unit/test_crc32c.cpp
   unit/test_dataset_io.cpp
+  unit/test_dispatch.cpp
   unit/test_flat_backend.cpp
   unit/test_hnsw_determinism.cpp
   unit/test_hnsw_edge_cases.cpp
@@ -43,6 +44,18 @@ vf_set_project_options(vf_unit_tests)
 gtest_discover_tests(vf_unit_tests
   DISCOVERY_MODE PRE_TEST
   PROPERTIES LABELS unit)
+
+# Kernel tier selection under explicit VF_SIMD requests (docs/simd.md). The default run above uses the
+# best tier; these re-run the tier-sensitive tests with the request fixed. The tests are
+# environment-aware, so an unsupported or invalid request must be reported, not crash or downgrade.
+add_test(NAME simd.forced_scalar
+         COMMAND vf_unit_tests --gtest_filter=Dispatch.*:Kernels.*:Normalize.*:HnswDeterminism.*:FlatBackend.*)
+set_tests_properties(simd.forced_scalar PROPERTIES ENVIRONMENT "VF_SIMD=scalar" LABELS unit)
+add_test(NAME simd.explicit_avx2
+         COMMAND vf_unit_tests --gtest_filter=Dispatch.*:Kernels.*:HnswDeterminism.*)
+set_tests_properties(simd.explicit_avx2 PROPERTIES ENVIRONMENT "VF_SIMD=avx2" LABELS unit)
+add_test(NAME simd.invalid_request COMMAND vf_unit_tests --gtest_filter=Dispatch.*)
+set_tests_properties(simd.invalid_request PROPERTIES ENVIRONMENT "VF_SIMD=fastest" LABELS unit)
 
 # Allocation tests: separate binary because it replaces the global operator new/delete -----------
 # ThreadSanitizer's runtime defines the global allocation functions itself, so the replacement
@@ -103,6 +116,10 @@ vf_set_project_options(vf_fuzz_replay)
 add_test(NAME fuzz.index_reader_replay
          COMMAND vf_fuzz_replay ${CMAKE_CURRENT_SOURCE_DIR}/data/golden)
 set_tests_properties(fuzz.index_reader_replay PROPERTIES LABELS persistence)
+add_test(NAME simd.load_reports_invalid_request
+         COMMAND vf_persistence_tests --gtest_filter=GoldenFiles.ReportsSimdSelectionError)
+set_tests_properties(simd.load_reports_invalid_request
+                     PROPERTIES ENVIRONMENT "VF_SIMD=fastest" LABELS persistence)
 
 if(VF_BUILD_FUZZERS)
   add_executable(vf_fuzz_index_reader_libfuzzer $<TARGET_OBJECTS:vf_fuzz_index_reader>)
@@ -155,6 +172,11 @@ if(VF_BUILD_CLI)
            COMMAND vectorforge_cli search --index ${vf_cli_smoke_dir}/index.vfidx
                    --queries ${vf_cli_smoke_dir}/queries.fvecs --k 5 --ef 64 --gt ${vf_cli_smoke_dir}/gt)
   add_test(NAME cli.verify_rejects_non_index COMMAND vectorforge_cli verify ${vf_cli_smoke_dir}/base.npy)
+  add_test(NAME cli.simd_invalid_request COMMAND vectorforge_cli verify ${vf_cli_smoke_dir}/index.vfidx)
+  set_tests_properties(cli.simd_invalid_request PROPERTIES
+                       ENVIRONMENT "VF_SIMD=fastest"
+                       PASS_REGULAR_EXPRESSION "INVALID_ARGUMENT: VF_SIMD='fastest'"
+                       FIXTURES_REQUIRED cli_index LABELS integration)
   set_tests_properties(cli.rejects_bad_args cli.verify_rejects_non_index PROPERTIES WILL_FAIL TRUE)
   set_tests_properties(cli.gen_base PROPERTIES FIXTURES_SETUP cli_base)
   set_tests_properties(cli.gen_queries PROPERTIES FIXTURES_SETUP cli_queries)

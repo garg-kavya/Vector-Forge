@@ -8,6 +8,7 @@
 #include <new>
 #include <string>
 
+#include <vectorforge/simd.hpp>
 #include <vectorforge/version.hpp>
 
 #include "commands.hpp"
@@ -160,6 +161,11 @@ int run(int argc, char** argv) {
       ->check(CLI::ExistingFile);
 
   CLI11_PARSE(app, argc, argv);
+
+  // A VF_SIMD request this build or CPU cannot honour is an error for every command.
+  if (const vf::Status simd = vf::simd_status(); !simd.ok()) {
+    return report(simd);
+  }
 
   if (build_cmd->parsed()) {
     const vf::Result<vf::Metric> metric = vf::parse_metric(build_metric);

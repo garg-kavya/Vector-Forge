@@ -68,6 +68,11 @@ fills more slowly, so queries do more work; compaction arrives in Phase 6a.
 Queries lease a `SearchContext` from a mutex-protected pool; after the first queries have sized the
 pooled contexts, a query performs no heap allocation.
 
+Before computing distances to an expanded node's neighbours, the beam search issues a prefetch hint
+for each unvisited neighbour's vector row (`HnswSearchOptions::prefetch`, on by default; also used by
+insertion). It never changes results; it gained 7–16% QPS at d = 768 and was neutral at d = 128
+([docs/simd.md](simd.md#prefetch)).
+
 ## Insertion
 
 Insertion follows the paper's Algorithm 1 in an explicit publication order (DESIGN §9.6):
@@ -99,7 +104,8 @@ exactly the paper's.
 | Cosine (or `normalize = true`) | unit length | cosine `max(0, 1 − ⟨q, x⟩/‖q‖)`, L2 `max(0, 2 − 2⟨q, x⟩/‖q‖)`, IP `−⟨q, x⟩/‖q‖` |
 
 Queries are never copied; normalised collections scale the dot product by `1/‖q‖`. The formulas are shared
-with the Flat backend, so both return bit-identical distances.
+with the Flat backend, so both return bit-identical distances for a given kernel tier. Graphs built on
+the scalar and AVX2 tiers can differ, because the tiers round differently ([docs/simd.md](simd.md)).
 
 ## Correctness checks
 

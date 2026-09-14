@@ -1,0 +1,17 @@
+{
+  "schema": 1, "suite": "hnsw-sweep-minimal",
+  "git": {"sha": "a32559d829b4-dirty"},
+  "machine": {"cpu": "AMD Ryzen 7 4800H with Radeon Graphics"},
+  "build": {"compiler": "MSVC 19.50.35728.0", "type": "Release", "simd_tier": "avx2", "kernel_table": "avx2"},
+  "dataset": {"distribution": "gmm", "n": 100000, "queries": 1000, "dim": 768, "metric": "l2", "clusters": 100, "spread": 0.1, "seed": 1},
+  "params": {"index": "hnsw", "M": 16, "ef_construction": 200, "k": 10, "selection": "heuristic", "repair_orphans": true, "prefetch": false, "index_file": true, "threads": 1},
+  "build_result": {"seconds": 0, "distance_computations": 0, "orphan_repairs": 0, "orphans_unrepaired": 0, "index_bytes": 18481152, "invariants_ok": true, "unreachable_level0": 1},
+  "flat": {"seconds": 14.8521, "qps": 67.3304, "mean_latency_us": 14852.1},
+  "sweep": [
+    {"ef_search": 16, "recall_at_k": 0.7396, "recall_min": 0, "qps": 7420.28, "latency_us": {"p50": 132.3, "p95": 165.4, "p99": 200.5, "mean": 134.766, "max": 255.4}, "dist_comps_mean": 484.127},
+    {"ef_search": 32, "recall_at_k": 0.8875, "recall_min": 0, "qps": 5050.88, "latency_us": {"p50": 195.2, "p95": 229.7, "p99": 270.6, "mean": 197.985, "max": 364.2}, "dist_comps_mean": 668.575},
+    {"ef_search": 64, "recall_at_k": 0.9664, "recall_min": 0, "qps": 3519.78, "latency_us": {"p50": 280.5, "p95": 324.9, "p99": 395, "mean": 284.109, "max": 607}, "dist_comps_mean": 880.996},
+    {"ef_search": 128, "recall_at_k": 0.9907, "recall_min": 0, "qps": 2769.52, "latency_us": {"p50": 355.8, "p95": 404.7, "p99": 493.8, "mean": 361.073, "max": 797.1}, "dist_comps_mean": 1042.9},
+    {"ef_search": 256, "recall_at_k": 0.9935, "recall_min": 0, "qps": 2335.54, "latency_us": {"p50": 419.6, "p95": 483.5, "p99": 567.9, "mean": 428.166, "max": 884.5}, "dist_comps_mean": 1114.9}
+  ]
+}

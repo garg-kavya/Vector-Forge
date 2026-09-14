@@ -1,4 +1,5 @@
-// Distance kernel correctness.
+// Distance kernel correctness for every kernel table this machine can run: scalar, scalar_autovec
+// and each AVX2 variant (docs/simd.md).
 //
 // Oracle: double-precision naive sums. Tolerance: a rigorous first-order bound for summing n
 // float products in any order: |computed - exact| <= ((1 + eps)^(n + 4) - 1) * sum|term_i|,
@@ -11,6 +12,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstddef>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -18,6 +20,8 @@
 
 #include "core/aligned_alloc.hpp"
 #include "core/rng.hpp"
+#include "simd/cpu_features.hpp"
+#include "simd/dispatch.hpp"
 #include "simd/kernels.hpp"
 #include "simd/metric_distance.hpp"
 #include "support/test_data.hpp"
@@ -73,16 +77,31 @@ std::vector<std::size_t> test_dims() {
   return dims;
 }
 
-const KernelTable* const kTables[] = {&vf::detail::scalar_kernel_table(),
-                                      &vf::detail::scalar_autovec_kernel_table()};
+// Every table runnable here. The AVX2 tables are skipped (and reported) on machines without AVX2.
+std::vector<const KernelTable*> all_tables() {
+  std::vector<const KernelTable*> tables = {&vf::detail::scalar_kernel_table(),
+                                            &vf::detail::scalar_autovec_kernel_table()};
+  const vf::detail::CpuFeatures& cpu = vf::detail::cpu_features();
+  if (const KernelTable* avx2 = vf::detail::avx2_kernel_table(cpu)) {
+    tables.push_back(avx2);
+  }
+  for (const KernelTable& t : vf::detail::avx2_variant_tables(cpu)) {
+    tables.push_back(&t);
+  }
+  return tables;
+}
 
-TEST(Kernels, ActiveTableIsScalarInPhase1) {
-  const KernelTable& k = vf::detail::kernels();
-  EXPECT_EQ(k.level, vf::SimdLevel::Scalar);
-  EXPECT_EQ(k.name, "scalar");
-  EXPECT_EQ(vf::active_simd_level(), vf::SimdLevel::Scalar);
-  EXPECT_EQ(vf::to_string(vf::SimdLevel::Scalar), "scalar");
-  EXPECT_EQ(vf::to_string(vf::SimdLevel::Avx2), "avx2");
+// Tables with a fixed reduction order (everything except the compiler-vectorised baseline).
+bool has_fixed_order(const KernelTable* t) {
+  return t != &vf::detail::scalar_autovec_kernel_table();
+}
+
+const std::vector<const KernelTable*> kTables = all_tables();
+
+TEST(Kernels, TablesAreComplete) {
+  if (vf::detail::avx2_kernel_table(vf::detail::cpu_features()) == nullptr) {
+    std::cout << "[kernels] AVX2 kernels not runnable here; testing scalar tables only\n";
+  }
   for (const KernelTable* t : kTables) {
     EXPECT_NE(t->dot, nullptr);
     EXPECT_NE(t->l2sq, nullptr);
@@ -119,28 +138,62 @@ TEST(Kernels, MatchDoubleReferenceAcrossDimsAndOffsets) {
   }
 }
 
-TEST(Kernels, ScalarIsBitIdenticalAcrossOffsets) {
-  const KernelTable& t = vf::detail::scalar_kernel_table();
-  vf::detail::Xoshiro256ss rng(5);
-  for (std::size_t d : {1U, 7U, 31U, 128U, 1537U}) {
-    const std::vector<float> a_src = vf::test::random_vector(rng, d);
-    const std::vector<float> b_src = vf::test::random_vector(rng, d);
-    const auto a_buf = vf::detail::make_aligned_array<float>(d + 8);
-    const auto b_buf = vf::detail::make_aligned_array<float>(d + 8);
-    float dot0 = 0.0F;
-    float l2_0 = 0.0F;
-    for (std::size_t offset = 0; offset < 8; ++offset) {
-      std::copy(a_src.begin(), a_src.end(), a_buf.get() + offset);
-      std::copy(b_src.begin(), b_src.end(), b_buf.get() + offset);
-      const float dot = t.dot(a_buf.get() + offset, b_buf.get() + offset, d);
-      const float l2 = t.l2sq(a_buf.get() + offset, b_buf.get() + offset, d);
-      if (offset == 0) {
-        dot0 = dot;
-        l2_0 = l2;
-      } else {
-        EXPECT_EQ(dot, dot0) << "d=" << d << " offset=" << offset;
-        EXPECT_EQ(l2, l2_0) << "d=" << d << " offset=" << offset;
+TEST(Kernels, FixedOrderTablesAreBitIdenticalAcrossOffsets) {
+  for (const KernelTable* table : kTables) {
+    if (!has_fixed_order(table)) {
+      continue;
+    }
+    const KernelTable& t = *table;
+    SCOPED_TRACE(std::string(t.name));
+    vf::detail::Xoshiro256ss rng(5);
+    for (std::size_t d : {1U, 7U, 31U, 33U, 128U, 1537U}) {
+      const std::vector<float> a_src = vf::test::random_vector(rng, d);
+      const std::vector<float> b_src = vf::test::random_vector(rng, d);
+      const auto a_buf = vf::detail::make_aligned_array<float>(d + 8);
+      const auto b_buf = vf::detail::make_aligned_array<float>(d + 8);
+      float dot0 = 0.0F;
+      float l2_0 = 0.0F;
+      for (std::size_t offset = 0; offset < 8; ++offset) {
+        std::copy(a_src.begin(), a_src.end(), a_buf.get() + offset);
+        std::copy(b_src.begin(), b_src.end(), b_buf.get() + offset);
+        const float dot = t.dot(a_buf.get() + offset, b_buf.get() + offset, d);
+        const float l2 = t.l2sq(a_buf.get() + offset, b_buf.get() + offset, d);
+        if (offset == 0) {
+          dot0 = dot;
+          l2_0 = l2;
+        } else {
+          EXPECT_EQ(dot, dot0) << "d=" << d << " offset=" << offset;
+          EXPECT_EQ(l2, l2_0) << "d=" << d << " offset=" << offset;
+        }
       }
+    }
+  }
+}
+
+TEST(Kernels, SymmetricBitForBit) {
+  // query_distance relies on dist(a, b) == dist(b, a) exactly (docs/hnsw.md).
+  vf::detail::Xoshiro256ss rng(8);
+  for (const KernelTable* t : kTables) {
+    for (std::size_t d : {3U, 8U, 29U, 64U, 128U, 131U, 768U}) {
+      const std::vector<float> a = vf::test::random_vector(rng, d, -3.0F, 3.0F);
+      const std::vector<float> b = vf::test::random_vector(rng, d, -3.0F, 3.0F);
+      EXPECT_EQ(t->dot(a.data(), b.data(), d), t->dot(b.data(), a.data(), d))
+          << t->name << " d=" << d;
+      EXPECT_EQ(t->l2sq(a.data(), b.data(), d), t->l2sq(b.data(), a.data(), d))
+          << t->name << " d=" << d;
+    }
+  }
+}
+
+TEST(Kernels, NormMatchesSelfDot) {
+  vf::detail::Xoshiro256ss rng(9);
+  for (const KernelTable* t : kTables) {
+    if (!has_fixed_order(t)) {
+      continue;
+    }
+    for (std::size_t d : {1U, 13U, 128U, 1543U}) {
+      const std::vector<float> a = vf::test::random_vector(rng, d, -3.0F, 3.0F);
+      EXPECT_EQ(t->norm2(a.data(), d), t->dot(a.data(), a.data(), d)) << t->name << " d=" << d;
     }
   }
 }
@@ -158,8 +211,8 @@ TEST(Kernels, BatchMatchesPairwise) {
       t->l2sq_1_to_n(q.data(), rows.data(), kRows, d, out_l2.data());
       for (std::size_t r = 0; r < kRows; ++r) {
         const float* row = rows.data() + (r * d);
-        if (t == &vf::detail::scalar_kernel_table()) {
-          // Same strict evaluation order: exact equality.
+        if (has_fixed_order(t)) {
+          // Same fixed evaluation order: exact equality (FlatBackend and HNSW distances agree).
           EXPECT_EQ(out_dot[r], t->dot(q.data(), row, d));
           EXPECT_EQ(out_l2[r], t->l2sq(q.data(), row, d));
         } else {

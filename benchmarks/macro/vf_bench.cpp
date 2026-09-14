@@ -1,7 +1,9 @@
-// vf_bench (minimal, Phase 3): build an HNSW index over a seeded synthetic dataset, sweep ef_search
-// and report recall@k, latency, QPS and distance computations per query against exact (Flat)
-// ground truth, plus Flat latency on the same queries. One configuration per process
-// (docs/DESIGN.md §16). Single thread, active kernel tier.
+// vf_bench (minimal, Phases 3-5): build an HNSW index over a seeded synthetic dataset (or load one
+// with --index-file), sweep ef_search and report recall@k, latency, QPS and distance computations
+// per query against exact (Flat) ground truth, plus Flat latency on the same queries. One
+// configuration per process (docs/DESIGN.md §16). Single thread. --simd selects the kernel tier
+// through VF_SIMD for A/B runs of the same binary on the same index file; --prefetch on|off sets
+// HnswSearchOptions::prefetch (default on, the library default).
 //
 // The index is built through HnswBackend directly (the same code path Collection uses, minus id
 // mapping) so that graph statistics and distance counters are observable.
@@ -12,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -25,6 +28,8 @@
 #include <vectorforge/simd.hpp>
 #include <vectorforge/version.hpp>
 
+#include "collection/collection_factory.hpp"
+#include "collection/collection_state.hpp"
 #include "core/vector_ops.hpp"
 #include "index/hnsw/hnsw_backend.hpp"
 #include "index/hnsw/hnsw_validator.hpp"
@@ -68,7 +73,17 @@ struct Options {
   std::string index_type = "hnsw";  // save: flat | hnsw
   std::string load_mode = "mmap";   // load: heap | mmap
   bool prefault = false;
+  std::string simd;             // "" (leave VF_SIMD alone) | auto | scalar | avx2
+  std::string prefetch = "on";  // sweep: on | off
 };
+
+void set_simd_request(const std::string& request) {
+#if defined(_WIN32)
+  _putenv_s("VF_SIMD", request.c_str());
+#else
+  setenv("VF_SIMD", request.c_str(), 1);  // NOLINT(concurrency-mt-unsafe): single-threaded startup
+#endif
+}
 
 std::vector<float> generate(const Options& o, std::uint64_t rows, std::uint64_t seed) {
   d::SyntheticSpec spec;
@@ -110,7 +125,8 @@ std::string environment_json() {
   json << "  \"git\": {\"sha\": \"" << vf::kGitSha << "\"},\n"
        << "  \"machine\": {\"cpu\": \"" << d::cpu_features().brand << "\"},\n"
        << "  \"build\": {\"compiler\": \"" << vf::kCompiler << "\", \"type\": \"" << vf::kBuildType
-       << "\", \"simd_tier\": \"" << vf::to_string(vf::active_simd_level()) << "\"},\n";
+       << "\", \"simd_tier\": \"" << vf::to_string(vf::active_simd_level())
+       << "\", \"kernel_table\": \"" << d::kernels().name << "\"},\n";
   return json.str();
 }
 
@@ -272,9 +288,24 @@ int run(int argc, char** argv) {
   app.add_option("--load-mode", o.load_mode, "load: heap | mmap")
       ->check(CLI::IsMember({"heap", "mmap"}));
   app.add_flag("--prefault", o.prefault, "load: prefault mapped vectors");
+  app.add_option("--simd", o.simd, "kernel tier request, sets VF_SIMD: auto | scalar | avx2")
+      ->check(CLI::IsMember({"auto", "scalar", "avx2"}));
+  app.add_option("--prefetch", o.prefetch, "sweep: HNSW neighbour-row prefetch: on | off")
+      ->check(CLI::IsMember({"on", "off"}));
   CLI11_PARSE(app, argc, argv);
 
-  const vf::Result<vf::Metric> metric = vf::parse_metric(o.metric);
+  // The tier is resolved on first kernel use, which happens after this point.
+  if (!o.simd.empty()) {
+    set_simd_request(o.simd);
+  }
+  if (const vf::Status simd = vf::simd_status(); !simd.ok()) {
+    std::cerr << simd.to_string() << "\n";
+    return 2;
+  }
+  std::cerr << "simd tier " << vf::to_string(vf::active_simd_level()) << " (" << d::kernels().name
+            << ")\n";
+
+  vf::Result<vf::Metric> metric = vf::parse_metric(o.metric);
   if (!metric.ok()) {
     std::cerr << metric.status().to_string() << "\n";
     return 2;
@@ -292,11 +323,49 @@ int run(int argc, char** argv) {
     std::cerr << st.to_string() << "\n";
     return 2;
   }
-  const bool normalized = metric.value() == vf::Metric::Cosine;
   const d::KernelTable& kernels = d::kernels();
 
-  std::cerr << "generating " << o.n << " + " << o.queries << " vectors (dim " << o.dim << ")\n";
-  std::vector<float> base = generate(o, o.n, o.seed);
+  // Index: loaded from --index-file (the same graph for every tier) or built here.
+  const bool from_file = !o.index_file.empty();
+  std::unique_ptr<vf::Collection> loaded;
+  d::VectorStore store = d::VectorStore::create({.dim = o.dim}).value();
+  d::TombstoneSet deleted;
+  std::unique_ptr<d::HnswBackend> built;
+  d::HnswBackend* hnsw = nullptr;
+  bool normalized = false;
+  std::vector<float> base;
+  double build_seconds = 0.0;
+  if (from_file) {
+    vf::Result<std::unique_ptr<vf::Collection>> opened =
+        vf::Collection::load(o.index_file, {.use_mmap = false});
+    if (!opened.ok()) {
+      std::cerr << opened.status().to_string() << "\n";
+      return 1;
+    }
+    loaded = std::move(opened).value();
+    const d::CollectionState& state = d::CollectionFactory::state(*loaded);
+    if (loaded->config().index != vf::IndexType::Hnsw || state.deleted.any()) {
+      std::cerr << "--index-file must be an HNSW index without deletions\n";
+      return 2;
+    }
+    hnsw = &static_cast<d::HnswBackend&>(*state.backend);
+    o.dim = loaded->config().dim;
+    o.n = state.vectors.size();
+    o.m = hnsw->params().M;
+    o.ef_construction = hnsw->params().ef_construction;
+    metric = loaded->config().metric;
+    normalized = state.normalized;
+    base.resize(static_cast<std::size_t>(o.n) * o.dim);
+    for (std::uint64_t r = 0; r < o.n; ++r) {
+      const std::span<const float> row = state.vectors.row(static_cast<vf::InternalId>(r));
+      std::copy(row.begin(), row.end(), base.begin() + static_cast<std::ptrdiff_t>(r * o.dim));
+    }
+    std::cerr << "loaded " << o.index_file << " (" << o.n << " x " << o.dim << ")\n";
+  } else {
+    normalized = metric.value() == vf::Metric::Cosine;
+    std::cerr << "generating " << o.n << " vectors (dim " << o.dim << ")\n";
+    base = generate(o, o.n, o.seed);
+  }
   const std::vector<float> queries = generate(o, o.queries, o.seed + 1);
   const auto nq = static_cast<std::size_t>(o.queries);
 
@@ -335,38 +404,42 @@ int run(int argc, char** argv) {
     flat_seconds = sw.elapsed_seconds();
   }
 
-  // HNSW build.
-  std::cerr << "building HNSW (M=" << o.m << ", ef_construction=" << o.ef_construction << ")\n";
-  d::VectorStore store = d::VectorStore::create({.dim = o.dim}).value();
-  d::TombstoneSet deleted;
-  d::HnswBuildOptions build_options;
-  build_options.selection =
-      o.selection == "simple" ? d::NeighborSelection::Simple : d::NeighborSelection::Heuristic;
-  build_options.repair_orphans = !o.no_repair;
-  const std::unique_ptr<d::HnswBackend> hnsw =
-      d::HnswBackend::create(store, deleted, metric.value(), normalized, kernels, params,
-                             build_options)
-          .value();
-  if (normalized) {
-    for (std::size_t r = 0; r < static_cast<std::size_t>(o.n); ++r) {
-      static_cast<void>(
-          d::normalize_inplace(std::span<float>(base).subspan(r * o.dim, o.dim), kernels));
+  if (!from_file) {
+    std::cerr << "building HNSW (M=" << o.m << ", ef_construction=" << o.ef_construction << ")\n";
+    store = d::VectorStore::create({.dim = o.dim}).value();
+    d::HnswBuildOptions build_options;
+    build_options.selection =
+        o.selection == "simple" ? d::NeighborSelection::Simple : d::NeighborSelection::Heuristic;
+    build_options.repair_orphans = !o.no_repair;
+    built = d::HnswBackend::create(store, deleted, metric.value(), normalized, kernels, params,
+                                   build_options)
+                .value();
+    hnsw = built.get();
+    hnsw->set_search_options({.prefetch = o.prefetch == "on"});
+    if (normalized) {
+      for (std::size_t r = 0; r < static_cast<std::size_t>(o.n); ++r) {
+        static_cast<void>(
+            d::normalize_inplace(std::span<float>(base).subspan(r * o.dim, o.dim), kernels));
+      }
     }
-  }
-  if (!store.reserve(o.n).ok()) {
-    return 1;
-  }
-  deleted.ensure_size(o.n);
-  const d::Stopwatch build_watch;
-  for (std::size_t r = 0; r < static_cast<std::size_t>(o.n); ++r) {
-    const vf::InternalId id =
-        store.append(std::span<const float>(base).subspan(r * o.dim, o.dim)).value();
-    if (!hnsw->add(id).ok()) {
-      std::cerr << "hnsw add failed\n";
+    if (!store.reserve(o.n).ok()) {
       return 1;
     }
+    deleted.ensure_size(o.n);
+    const d::Stopwatch build_watch;
+    for (std::size_t r = 0; r < static_cast<std::size_t>(o.n); ++r) {
+      const vf::InternalId id =
+          store.append(std::span<const float>(base).subspan(r * o.dim, o.dim)).value();
+      if (!hnsw->add(id).ok()) {
+        std::cerr << "hnsw add failed\n";
+        return 1;
+      }
+    }
+    build_seconds = build_watch.elapsed_seconds();
   }
-  const double build_seconds = build_watch.elapsed_seconds();
+  if (from_file) {
+    hnsw->set_search_options({.prefetch = o.prefetch == "on"});
+  }
   const d::HnswValidator validator(hnsw->graph());
   const vf::Status invariants = validator.check_invariants();
   const d::HnswReachability reach = validator.reachability();
@@ -379,7 +452,8 @@ int run(int argc, char** argv) {
        << "  \"git\": {\"sha\": \"" << vf::kGitSha << "\"},\n"
        << "  \"machine\": {\"cpu\": \"" << json_escape(cpu.brand) << "\"},\n"
        << "  \"build\": {\"compiler\": \"" << vf::kCompiler << "\", \"type\": \"" << vf::kBuildType
-       << "\", \"simd_tier\": \"" << vf::to_string(vf::active_simd_level()) << "\"},\n"
+       << "\", \"simd_tier\": \"" << vf::to_string(vf::active_simd_level())
+       << "\", \"kernel_table\": \"" << kernels.name << "\"},\n"
        << "  \"dataset\": {\"distribution\": \"" << o.distribution << "\", \"n\": " << o.n
        << ", \"queries\": " << o.queries << ", \"dim\": " << o.dim << ", \"metric\": \""
        << vf::to_string(metric.value()) << "\", \"clusters\": " << o.clusters
@@ -387,7 +461,9 @@ int run(int argc, char** argv) {
        << "  \"params\": {\"index\": \"hnsw\", \"M\": " << o.m
        << ", \"ef_construction\": " << o.ef_construction << ", \"k\": " << o.k
        << ", \"selection\": \"" << o.selection
-       << "\", \"repair_orphans\": " << (o.no_repair ? "false" : "true") << ", \"threads\": 1},\n"
+       << "\", \"repair_orphans\": " << (o.no_repair ? "false" : "true")
+       << ", \"prefetch\": " << (o.prefetch == "on" ? "true" : "false")
+       << ", \"index_file\": " << (from_file ? "true" : "false") << ", \"threads\": 1},\n"
        << "  \"build_result\": {\"seconds\": " << build_seconds
        << ", \"distance_computations\": " << hnsw->build_stats().distance_computations
        << ", \"orphan_repairs\": " << hnsw->build_stats().orphan_repairs
