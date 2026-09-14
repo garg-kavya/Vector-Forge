@@ -18,6 +18,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <span>
 #include <vector>
@@ -29,8 +30,13 @@
 
 namespace vf {
 
+namespace detail {
+struct CollectionFactory;
+}  // namespace detail
+
 struct MemoryUsage {
-  std::size_t vectors_bytes = 0;          // allocated vector chunks
+  std::size_t vectors_bytes = 0;          // allocated heap vector chunks
+  std::size_t mapped_vectors_bytes = 0;   // vectors in a memory-mapped file (not in total)
   std::size_t labels_bytes = 0;           // internal -> external id array
   std::size_t id_map_bytes_estimate = 0;  // external -> internal hash map (estimated)
   std::size_t tombstone_bytes = 0;
@@ -57,6 +63,24 @@ class Collection {
  public:
   // Errors: InvalidArgument (invalid config, including HnswParams for IndexType::Hnsw).
   [[nodiscard]] static Result<std::unique_ptr<Collection>> create(const CollectionConfig& config);
+
+  // Opens an index file written by save() (docs/storage-format.md). The file is validated as
+  // untrusted input: structure always, checksums per options.verify. With options.use_mmap the
+  // vectors are served from a read-only mapping (the file must not be modified or truncated while
+  // the collection lives; on Windows it cannot be replaced meanwhile); new vectors go to heap
+  // memory. Collections smaller than one vector chunk (16 MiB) are copied even with use_mmap.
+  // The graph, labels and tombstones are always loaded into memory.
+  // Errors: IoError (cannot open or map), CorruptData (invalid or damaged file),
+  // UnsupportedVersion (other format major version).
+  [[nodiscard]] static Result<std::unique_ptr<Collection>> load(const std::filesystem::path& file,
+                                                                const LoadOptions& options = {});
+
+  // Writes the collection to `file` atomically: a temporary file "<file>.tmp" is written, synced
+  // and renamed over `file`, so a crash leaves either the old or the new file. Saving the same
+  // state twice produces identical bytes. Replacing a file that is currently memory-mapped (for
+  // example by the collection being saved) fails with IoError on Windows.
+  // Errors: IoError.
+  [[nodiscard]] Status save(const std::filesystem::path& file) const;
 
   Collection(const Collection&) = delete;
   Collection& operator=(const Collection&) = delete;
@@ -119,6 +143,7 @@ class Collection {
   [[nodiscard]] const CollectionConfig& config() const noexcept;
 
  private:
+  friend struct detail::CollectionFactory;
   struct Impl;
   explicit Collection(std::unique_ptr<Impl> impl) noexcept;
   std::unique_ptr<Impl> impl_;

@@ -1,0 +1,36 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Fuzzing time in seconds
+        default: "600"
+
+permissions:
+  contents: read
+
+jobs:
+  index-reader:
+    name: Index reader (libFuzzer + ASan + UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-18 libclang-rt-18-dev
+      - name: Build fuzzer
+        run: |
+          cmake --preset linux-clang-fuzz -DCMAKE_CXX_COMPILER=clang++-18
+          cmake --build --preset linux-clang-fuzz --target vf_fuzz_index_reader_libfuzzer
+      - name: Fuzz
+        run: tools/fuzz_index_reader.sh out/build/linux-clang-fuzz "${{ github.event.inputs.seconds || '600' }}"
+      - name: Upload findings
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-artifacts
+          path: fuzz-artifacts/

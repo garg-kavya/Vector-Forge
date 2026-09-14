@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -10,8 +11,11 @@
 #include <vector>
 
 #include <vectorforge/collection.hpp>
+#include <vectorforge/version.hpp>
 
+#include "collection/collection_factory.hpp"
 #include "collection/collection_state.hpp"
+#include "collection/index_file.hpp"
 #include "core/assert.hpp"
 #include "core/checked_math.hpp"
 #include "core/validation.hpp"
@@ -19,6 +23,8 @@
 #include "index/flat_backend.hpp"
 #include "index/hnsw/hnsw_backend.hpp"
 #include "simd/kernels.hpp"
+#include "storage/atomic_file.hpp"
+#include "storage/mapped_file.hpp"
 
 namespace vf {
 
@@ -119,6 +125,69 @@ Collection::Collection(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(im
 }
 Collection::~Collection() = default;
 
+namespace detail {
+
+Result<std::unique_ptr<Collection>> CollectionFactory::load_from_memory(
+    std::span<const std::byte> file, Verify verify) {
+  Result<std::unique_ptr<CollectionState>> state = read_index(
+      file, {.verify = verify == Verify::Auto ? Verify::Full : verify, .owner = nullptr});
+  if (!state.ok()) {
+    return state.status();
+  }
+  auto impl = std::make_unique<Collection::Impl>();
+  impl->state = std::move(state).value();
+  return std::unique_ptr<Collection>(new Collection(std::move(impl)));
+}
+
+Status CollectionFactory::save_to(const Collection& collection, ByteSink& sink) {
+  return write_index(*collection.impl_->state, sink);
+}
+
+const CollectionState& CollectionFactory::state(const Collection& collection) noexcept {
+  return *collection.impl_->state;
+}
+
+}  // namespace detail
+
+Result<std::unique_ptr<Collection>> Collection::load(const std::filesystem::path& file,
+                                                     const LoadOptions& options) {
+  Result<detail::MappedFile> mapped = detail::MappedFile::open(file);
+  if (!mapped.ok()) {
+    return mapped.status();
+  }
+  auto mapping = std::make_shared<detail::MappedFile>(std::move(mapped).value());
+  Verify verify = options.verify;
+  if (verify == Verify::Auto) {
+    verify = options.use_mmap ? Verify::Metadata : Verify::Full;
+  }
+  if (options.use_mmap && options.prefault) {
+    mapping->prefault();
+  }
+  // Heap loads also parse through the mapping (page cache instead of a private copy of the whole
+  // file); the mapping is released when read_index returns because nothing keeps it.
+  Result<std::unique_ptr<detail::CollectionState>> state = detail::read_index(
+      mapping->data(),
+      {.verify = verify,
+       .owner = options.use_mmap ? std::shared_ptr<const void>(mapping) : nullptr});
+  if (!state.ok()) {
+    return Status(state.status().code(), file.string() + ": " + state.status().message());
+  }
+  if (options.use_mmap) {
+    mapping->advise(state.value()->config.index == IndexType::Hnsw
+                        ? detail::AccessPattern::Random
+                        : detail::AccessPattern::Sequential);
+  }
+  auto impl = std::make_unique<Impl>();
+  impl->state = std::move(state).value();
+  return std::unique_ptr<Collection>(new Collection(std::move(impl)));
+}
+
+Status Collection::save(const std::filesystem::path& file) const {
+  const detail::CollectionState& s = *impl_->state;
+  return detail::write_atomic(
+      file, [&s](detail::ByteSink& sink) { return detail::write_index(s, sink); });
+}
+
 Result<std::unique_ptr<Collection>> Collection::create(const CollectionConfig& config) {
   VF_RETURN_IF_ERROR(config.validate());
   Result<detail::VectorStore> store = detail::VectorStore::create({.dim = config.dim});
@@ -127,6 +196,11 @@ Result<std::unique_ptr<Collection>> Collection::create(const CollectionConfig& c
   }
   const detail::KernelTable& kernels = detail::kernels();
   auto state = std::make_unique<detail::CollectionState>(config, std::move(store).value(), kernels);
+  state->creator = "vectorforge " + std::string(kVersion);
+  state->created_unix_ms =
+      static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     std::chrono::system_clock::now().time_since_epoch())
+                                     .count());
   switch (config.index) {
     case IndexType::Flat:
       state->backend = std::make_unique<detail::FlatBackend>(
@@ -349,6 +423,7 @@ CollectionStats Collection::stats() const {
   st.normalized = s.normalized;
   st.simd = s.kernels->level;
   st.memory.vectors_bytes = s.vectors.allocated_bytes();
+  st.memory.mapped_vectors_bytes = s.vectors.mapped_bytes();
   st.memory.labels_bytes = s.ids.labels_bytes();
   st.memory.id_map_bytes_estimate = s.ids.map_bytes_estimate();
   st.memory.tombstone_bytes = s.deleted.bytes();

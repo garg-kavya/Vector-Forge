@@ -3,6 +3,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -158,11 +159,47 @@ TEST(VectorStore, PopBackUndoesLastAppend) {
   EXPECT_EQ(std::vector<float>(store.row(1).begin(), store.row(1).end()), row_for(1, kDim));
 }
 
-TEST(VectorStore, MutableRow) {
-  VectorStore store = make_store(3, 4);
-  ASSERT_TRUE(store.append(std::vector<float>{1.0F, 2.0F, 3.0F}).ok());
-  store.mutable_row_ptr(0)[1] = 42.0F;
-  EXPECT_EQ(store.row(0)[1], 42.0F);
+TEST(VectorStore, MappedBaseWithHeapTail) {
+  constexpr std::uint32_t kDim = 3;
+  // 10 rows with 4 rows per chunk: 2 full chunks referenced, 2 rows copied to a heap chunk.
+  std::vector<float> external;
+  for (std::uint64_t i = 0; i < 10; ++i) {
+    const std::vector<float> r = row_for(i, kDim);
+    external.insert(external.end(), r.begin(), r.end());
+  }
+  auto owner = std::make_shared<int>(7);
+  const std::weak_ptr<int> watch = owner;
+  auto created = VectorStore::create_mapped({.dim = kDim, .rows_per_chunk = 4}, std::move(owner),
+                                            external.data(), 10);
+  ASSERT_TRUE(created.ok()) << created.status().to_string();
+  VectorStore store = std::move(created).value();
+  EXPECT_EQ(store.size(), 10U);
+  EXPECT_EQ(store.mapped_rows(), 8U);
+  EXPECT_EQ(store.mapped_bytes(), 8U * kDim * sizeof(float));
+  EXPECT_EQ(store.allocated_bytes(), store.chunk_bytes()) << "one heap chunk for the tail";
+  EXPECT_EQ(store.row_ptr(0), external.data()) << "mapped rows are referenced, not copied";
+  EXPECT_EQ(store.row_ptr(7), external.data() + (7 * kDim));
+  EXPECT_NE(store.row_ptr(8), external.data() + (8 * kDim)) << "tail rows are copied";
+  for (std::uint64_t i = 10; i < 20; ++i) {
+    ASSERT_EQ(store.append(row_for(i, kDim)).value(), static_cast<InternalId>(i));
+  }
+  for (std::uint64_t i = 0; i < 20; ++i) {
+    const auto r = store.row(static_cast<InternalId>(i));
+    EXPECT_EQ(std::vector<float>(r.begin(), r.end()), row_for(i, kDim)) << "row " << i;
+  }
+  store.pop_back();
+  EXPECT_EQ(store.size(), 19U);
+  EXPECT_FALSE(watch.expired()) << "the store keeps the mapped memory alive";
+  VectorStore moved = std::move(store);
+  EXPECT_EQ(moved.row_ptr(3), external.data() + (3 * kDim));
+  moved = make_store(kDim, 4);
+  EXPECT_TRUE(watch.expired()) << "releasing the store releases the owner";
+
+  EXPECT_EQ(VectorStore::create_mapped({.dim = kDim, .rows_per_chunk = 4, .max_rows = 5}, nullptr,
+                                       external.data(), 10)
+                .status()
+                .code(),
+            ErrorCode::ResourceExhausted);
 }
 
 TEST(VectorStore, MoveTransfersOwnership) {

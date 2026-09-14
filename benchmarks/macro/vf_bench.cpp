@@ -7,11 +7,13 @@
 // mapping) so that graph statistics and distance counters are observable.
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -26,6 +28,7 @@
 #include "core/vector_ops.hpp"
 #include "index/hnsw/hnsw_backend.hpp"
 #include "index/hnsw/hnsw_validator.hpp"
+#include "process_memory.hpp"
 #include "simd/cpu_features.hpp"
 #include "simd/kernels.hpp"
 #include "storage/tombstones.hpp"
@@ -59,6 +62,12 @@ struct Options {
   bool no_repair = false;
   bool skip_flat_timing = false;
   std::string out;
+  // Storage scenarios (docs/DESIGN.md §16.3 "storage"): run each in a fresh process.
+  std::string scenario = "sweep";  // sweep | save | load
+  std::string index_file;
+  std::string index_type = "hnsw";  // save: flat | hnsw
+  std::string load_mode = "mmap";   // load: heap | mmap
+  bool prefault = false;
 };
 
 std::vector<float> generate(const Options& o, std::uint64_t rows, std::uint64_t seed) {
@@ -86,6 +95,141 @@ double percentile(std::vector<double> sorted_samples, double p) {
   const auto rank =
       static_cast<std::size_t>(std::ceil(p / 100.0 * static_cast<double>(sorted_samples.size())));
   return sorted_samples[std::min(sorted_samples.size() - 1, rank == 0 ? 0 : rank - 1)];
+}
+
+void emit(const Options& o, const std::string& json) {
+  std::cout << json;
+  if (!o.out.empty()) {
+    std::ofstream file(o.out, std::ios::binary);
+    file << json;
+  }
+}
+
+std::string environment_json() {
+  std::ostringstream json;
+  json << "  \"git\": {\"sha\": \"" << vf::kGitSha << "\"},\n"
+       << "  \"machine\": {\"cpu\": \"" << d::cpu_features().brand << "\"},\n"
+       << "  \"build\": {\"compiler\": \"" << vf::kCompiler << "\", \"type\": \"" << vf::kBuildType
+       << "\", \"simd_tier\": \"" << vf::to_string(vf::active_simd_level()) << "\"},\n";
+  return json.str();
+}
+
+// save: build a collection through the public API and time Collection::save.
+int run_save(const Options& o, vf::Metric metric) {
+  if (o.index_file.empty()) {
+    std::cerr << "--index-file is required\n";
+    return 2;
+  }
+  std::vector<float> base = generate(o, o.n, o.seed);
+  vf::CollectionConfig cfg;
+  cfg.dim = o.dim;
+  cfg.metric = metric;
+  cfg.index = o.index_type == "flat" ? vf::IndexType::Flat : vf::IndexType::Hnsw;
+  cfg.hnsw.M = o.m;
+  cfg.hnsw.ef_construction = o.ef_construction;
+  const std::unique_ptr<vf::Collection> c = vf::Collection::create(cfg).value();
+  std::vector<ExternalId> ids(static_cast<std::size_t>(o.n));
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    ids[i] = i;
+  }
+  const d::Stopwatch build_watch;
+  if (!c->add_batch(ids, base).ok()) {
+    std::cerr << "build failed\n";
+    return 1;
+  }
+  const double build_seconds = build_watch.elapsed_seconds();
+  base = {};
+  const d::Stopwatch save_watch;
+  const vf::Status saved = c->save(o.index_file);
+  const double save_seconds = save_watch.elapsed_seconds();
+  if (!saved.ok()) {
+    std::cerr << saved.to_string() << "\n";
+    return 1;
+  }
+  const auto bytes = std::filesystem::file_size(o.index_file);
+  std::ostringstream json;
+  json << "{\n  \"schema\": 1, \"suite\": \"storage-save\",\n"
+       << environment_json() << "  \"dataset\": {\"distribution\": \"" << o.distribution
+       << "\", \"n\": " << o.n << ", \"dim\": " << o.dim << ", \"metric\": \""
+       << vf::to_string(metric) << "\", \"seed\": " << o.seed << "},\n  \"params\": {\"index\": \""
+       << o.index_type << "\", \"M\": " << o.m << ", \"ef_construction\": " << o.ef_construction
+       << ", \"threads\": 1},\n"
+       << "  \"result\": {\"build_seconds\": " << build_seconds
+       << ", \"save_seconds\": " << save_seconds << ", \"file_bytes\": " << bytes
+       << ", \"save_mib_per_s\": " << static_cast<double>(bytes) / (1024.0 * 1024.0) / save_seconds
+       << "}\n}\n";
+  emit(o, json.str());
+  return 0;
+}
+
+// load: open an existing index in one mode, then query it twice (first pass includes page faults
+// for mmap loads; second pass is steady state).
+int run_load(const Options& o) {
+  if (o.index_file.empty()) {
+    std::cerr << "--index-file is required\n";
+    return 2;
+  }
+  const bool mmap = o.load_mode == "mmap";
+  const vf::bench::ProcessMemory before = vf::bench::process_memory();
+  const d::Stopwatch open_watch;
+  vf::Result<std::unique_ptr<vf::Collection>> loaded =
+      vf::Collection::load(o.index_file, {.use_mmap = mmap, .prefault = o.prefault});
+  const double open_seconds = open_watch.elapsed_seconds();
+  if (!loaded.ok()) {
+    std::cerr << loaded.status().to_string() << "\n";
+    return 1;
+  }
+  const vf::bench::ProcessMemory after_open = vf::bench::process_memory();
+  const vf::Collection& c = *loaded.value();
+  Options qo = o;
+  qo.dim = c.config().dim;
+  const std::vector<float> queries = generate(qo, o.queries, o.seed + 1);
+  const auto nq = static_cast<std::size_t>(o.queries);
+  vf::SearchParams params;
+  params.k = o.k;
+  params.ef_search = o.ef_search.front();
+  std::vector<Neighbor> out(o.k);
+  std::array<std::vector<double>, 2> passes;
+  std::array<double, 2> totals{};
+  for (std::size_t pass = 0; pass < 2; ++pass) {
+    passes[pass].resize(nq);
+    for (std::size_t q = 0; q < nq; ++q) {
+      const d::Stopwatch sw;
+      static_cast<void>(
+          c.search_into(std::span<const float>(queries).subspan(q * qo.dim, qo.dim), params, out));
+      passes[pass][q] = sw.elapsed_seconds();
+      totals[pass] += passes[pass][q];
+    }
+  }
+  const double first_query_us = passes[0][0] * 1e6;
+  const vf::bench::ProcessMemory after_queries = vf::bench::process_memory();
+  std::ostringstream json;
+  json << "{\n  \"schema\": 1, \"suite\": \"storage-load\",\n"
+       << environment_json()
+       << "  \"params\": {\"file_bytes\": " << std::filesystem::file_size(o.index_file)
+       << ", \"index\": \"" << vf::to_string(c.config().index)
+       << "\", \"rows\": " << c.stats().row_count << ", \"dim\": " << c.config().dim
+       << ", \"load_mode\": \"" << o.load_mode
+       << "\", \"prefault\": " << (o.prefault ? "true" : "false") << ", \"k\": " << o.k
+       << ", \"ef_search\": " << o.ef_search.front() << ", \"queries\": " << nq
+       << ", \"page_cache\": \"warm (not evicted)\"},\n  \"result\": {\"open_seconds\": "
+       << open_seconds << ", \"first_query_us\": " << first_query_us;
+  for (std::size_t pass = 0; pass < 2; ++pass) {
+    std::sort(passes[pass].begin(), passes[pass].end());
+    json << ", \"pass" << pass + 1 << "\": {\"qps\": " << static_cast<double>(nq) / totals[pass]
+         << ", \"p50_us\": " << percentile(passes[pass], 50) * 1e6
+         << ", \"p99_us\": " << percentile(passes[pass], 99) * 1e6
+         << ", \"max_us\": " << passes[pass].back() * 1e6 << "}";
+  }
+  json << ", \"rss_bytes\": {\"before\": " << before.rss_bytes
+       << ", \"after_open\": " << after_open.rss_bytes
+       << ", \"after_queries\": " << after_queries.rss_bytes
+       << "}, \"private_bytes\": {\"before\": " << before.private_bytes
+       << ", \"after_open\": " << after_open.private_bytes
+       << ", \"after_queries\": " << after_queries.private_bytes
+       << "}, \"mapped_vector_bytes\": " << c.stats().memory.mapped_vectors_bytes << "}\n}\n";
+  emit(o, json.str());
+  return 0;
 }
 
 std::string json_escape(const std::string& s) {
@@ -120,12 +264,26 @@ int run(int argc, char** argv) {
   app.add_flag("--no-repair", o.no_repair, "disable new-node orphan repair");
   app.add_flag("--skip-flat-timing", o.skip_flat_timing, "do not time Flat queries");
   app.add_option("--out", o.out, "JSON output file (default: stdout only)");
+  app.add_option("--scenario", o.scenario, "sweep | save | load")
+      ->check(CLI::IsMember({"sweep", "save", "load"}));
+  app.add_option("--index-file", o.index_file, "save/load: index file path");
+  app.add_option("--index", o.index_type, "save: flat | hnsw")
+      ->check(CLI::IsMember({"flat", "hnsw"}));
+  app.add_option("--load-mode", o.load_mode, "load: heap | mmap")
+      ->check(CLI::IsMember({"heap", "mmap"}));
+  app.add_flag("--prefault", o.prefault, "load: prefault mapped vectors");
   CLI11_PARSE(app, argc, argv);
 
   const vf::Result<vf::Metric> metric = vf::parse_metric(o.metric);
   if (!metric.ok()) {
     std::cerr << metric.status().to_string() << "\n";
     return 2;
+  }
+  if (o.scenario == "save") {
+    return run_save(o, metric.value());
+  }
+  if (o.scenario == "load") {
+    return run_load(o);
   }
   vf::HnswParams params;
   params.M = o.m;

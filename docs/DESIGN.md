@@ -1885,6 +1885,32 @@ flowchart LR
 - **Benchmarks:** save time, heap load vs mmap load, cold/warm first-query latency.
 - **Acceptance:** no corrupted input causes crash/ASan report; loader fuzzed ≥10 min in CI without findings;
   CLI `build → info → verify → search` pipeline works on SIFT-format files.
+- **Implementation notes (as built):** the complete specification is `docs/storage-format.md`.
+  - Header field 44 (reserved in §12.1) holds `section_table_crc32c`, so every byte of a file is covered by a
+    checksum; METADATA's `mL` field is reserved (0) because levels are computed exactly from M (Phase 3).
+    Readers also require zero padding between regions and `0xFFFFFFFF` in unused link slots, which makes every
+    single-bit flip detectable with full verification (tested for every byte).
+  - `LoadOptions::verify` gains `Auto` (Full for heap, Metadata for mmap, matching §12.3 step 5); `None` still
+    checks the header and table CRCs. Structural validation always runs.
+  - Heap loads parse through a temporary read-only mapping (page cache) instead of reading the file into a
+    private buffer, avoiding a transient second copy of the vectors.
+  - mmap loads reference whole 16 MiB vector chunks in the mapping; the trailing partial chunk is copied so
+    inserts continue in heap chunks (`VectorStore::create_mapped`). Collections below one chunk are copied.
+  - Creator version and creation time are preserved across load/save, so save → load → save is byte-identical.
+    Golden files are written by an independent Python implementation (`tools/make_golden.py`) and must be
+    reproduced byte for byte by the C++ writer.
+  - Writer and reader live in `src/collection/index_{writer,reader}.cpp` (they assemble collection state; the
+    storage module keeps only format primitives). `IndexBackend` has no virtual serialisation hooks: the writer
+    and reader dispatch on the index type (`src/index/hnsw/hnsw_io.cpp`).
+  - Snapshots (MANIFEST + generations + GC) are internal functions (`src/collection/snapshot.hpp`) for the
+    Phase 7 catalog. MANIFEST's `crc32c` is the generation file's header CRC. The fault-injection hook is
+    programmatic (`fault_injection::arm`) instead of an environment variable, so tests run in-process.
+  - Windows 10+ deletes a mapped file immediately (POSIX delete semantics via `FILE_SHARE_DELETE`) but cannot
+    rename over it; `Collection::save` onto the file an mmap-loaded collection maps returns `IoError` there.
+  - HNSW back-link shrinking sorts with an insertion sort (≤ 2M + 1 elements) so NaN distances from vectors
+    loaded without VECTORS verification cannot cause undefined behaviour.
+  - The SSE4.2 CRC32C path was not implemented (slice-by-8 only). `vectorforge build/search` are single-threaded
+    until Phase 6a. SIFT's ground truth (`.ivecs`) is accepted by `search --gt` with id-overlap recall.
 
 ### Phase 5 — SIMD
 

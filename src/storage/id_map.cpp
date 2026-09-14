@@ -1,7 +1,9 @@
 #include "storage/id_map.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
+#include <utility>
 
 #include "core/assert.hpp"
 
@@ -82,6 +84,32 @@ ExternalId IdMap::label(InternalId internal) const noexcept {
 void IdMap::reserve_capacity(std::size_t additional) {
   map_.reserve(map_.size() + additional);
   labels_.reserve(labels_.size() + additional);
+}
+
+Result<IdMap> IdMap::restore(std::vector<ExternalId> labels, const TombstoneSet& deleted) {
+  IdMap map;
+  map.labels_ = std::move(labels);
+  const std::size_t rows = map.labels_.size();
+  map.map_.reserve(rows - std::min<std::size_t>(rows, static_cast<std::size_t>(deleted.count())));
+  for (std::size_t i = 0; i < rows; ++i) {
+    const auto internal = static_cast<InternalId>(i);
+    if (deleted.test(internal)) {
+      continue;
+    }
+    const ExternalId external = map.labels_[i];
+    if (external == kInvalidExternalId) {
+      return Status::corrupt_data("LABELS: live row " + std::to_string(i) +
+                                  " has the reserved external id");
+    }
+    const auto [it, inserted] = map.map_.try_emplace(external, Entry{.current = internal});
+    if (!inserted) {
+      return Status::corrupt_data("LABELS: external id " + std::to_string(external) +
+                                  " labels live rows " + std::to_string(it->second.current) +
+                                  " and " + std::to_string(i));
+    }
+  }
+  map.live_ = map.map_.size();
+  return map;
 }
 
 std::size_t IdMap::labels_bytes() const noexcept {

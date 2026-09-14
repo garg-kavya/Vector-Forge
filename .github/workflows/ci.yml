@@ -53,13 +53,29 @@ jobs:
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
 
+  fuzz-smoke:
+    name: Linux Clang 18 index reader fuzz (2 min)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-18 libclang-rt-18-dev
+      - name: Build fuzzer
+        run: |
+          cmake --preset linux-clang-fuzz -DCMAKE_CXX_COMPILER=clang++-18
+          cmake --build --preset linux-clang-fuzz --target vf_fuzz_index_reader_libfuzzer
+      - name: Fuzz
+        run: tools/fuzz_index_reader.sh out/build/linux-clang-fuzz 120
+
   windows:
     name: Windows MSVC ${{ matrix.preset }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
-        preset: [msvc-debug, msvc-release]
+        preset: [msvc-debug, msvc-release, msvc-asan]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0

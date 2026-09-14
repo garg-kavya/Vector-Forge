@@ -58,6 +58,13 @@ class HnswBackend final : public IndexBackend {
       const VectorStore& vectors, const TombstoneSet& deleted, Metric metric, bool normalized,
       const KernelTable& kernels, const HnswParams& params, const HnswBuildOptions& options = {});
 
+  // Backend over an already built graph (index loading). Preconditions: `graph` passed the reader's
+  // structural validation, has graph.m() == params.M and one node per row of `vectors`.
+  // Errors: InvalidArgument (params).
+  [[nodiscard]] static Result<std::unique_ptr<HnswBackend>> create_loaded(
+      const VectorStore& vectors, const TombstoneSet& deleted, Metric metric, bool normalized,
+      const KernelTable& kernels, const HnswParams& params, HnswGraph graph);
+
   [[nodiscard]] IndexType type() const noexcept override { return IndexType::Hnsw; }
 
   // Inserts row `id` (== graph node count, the last appended row). Errors: ResourceExhausted.

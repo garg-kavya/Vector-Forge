@@ -19,6 +19,8 @@ option(VF_NATIVE "Compile everything for the host CPU (-march=native / /arch:AVX
 option(VF_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(VF_USE_SYSTEM_DEPS "Use find_package() for third-party deps instead of FetchContent" OFF)
 option(VF_ENABLE_LTO "Enable interprocedural optimization for Release builds" OFF)
+option(VF_BUILD_FUZZERS "Build libFuzzer targets (Clang only; combine with VF_SANITIZE)" OFF)
+option(VF_ENABLE_ASSERTS "Keep VF_ASSERT checks in optimised builds" OFF)
 set(VF_SANITIZE "" CACHE STRING "Sanitizers: '', 'address', 'address;undefined', 'thread'")
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -41,6 +43,18 @@ include(Sanitizers)
 include(SimdFlags)
 
 vf_configure_sanitizers() # global: must precede dependencies so they are instrumented too
+
+if(VF_ENABLE_ASSERTS)
+  add_compile_definitions(VF_ENABLE_ASSERTS=1)
+endif()
+
+if(VF_BUILD_FUZZERS)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "VF_BUILD_FUZZERS requires Clang (libFuzzer)")
+  endif()
+  # Coverage instrumentation for all code; only fuzz executables link the libFuzzer runtime.
+  add_compile_options(-fsanitize=fuzzer-no-link)
+endif()
 
 if(VF_NATIVE)
   if(MSVC)

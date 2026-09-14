@@ -5,11 +5,13 @@ VectorForge is a C++20 vector similarity search engine built from first principl
 distance kernels, a thread pool, a versioned on-disk format with memory-mapped vectors, an HTTP API
 and Python bindings.
 
-> **Status:** early development — Phases 0–3 of the [engineering design](docs/DESIGN.md) are
+> **Status:** early development — Phases 0–4 of the [engineering design](docs/DESIGN.md) are
 > complete: toolchain; core types, deterministic RNG, scalar distance kernels, vector storage; exact
 > (Flat) search, dataset I/O and the `vectorforge gen-data` / `ground-truth` CLI; single-threaded
-> HNSW approximate search ([docs/hnsw.md](docs/hnsw.md)). Persistence, SIMD kernels, concurrency,
-> HTTP and Python are *planned*, not implemented.
+> HNSW approximate search ([docs/hnsw.md](docs/hnsw.md)); checksummed, crash-safe persistence with
+> memory-mapped loading and the `build` / `search` / `info` / `verify` CLI
+> ([docs/storage-format.md](docs/storage-format.md)). SIMD kernels, concurrency, HTTP and Python are
+> *planned*, not implemented.
 
 ## Quick start (current API)
 
@@ -28,13 +30,26 @@ vf::SearchParams params;
 params.k = 5;
 params.ef_search = 64;  // HNSW beam width (recall/latency trade-off)
 auto hits = col->search(std::vector<float>{0.1F, 0.2F, 0.25F}, params).value();  // ascending distance
+
+if (vf::Status st = col->save("docs.vfidx"); !st.ok()) {  // atomic write
+  std::fprintf(stderr, "%s\n", st.to_string().c_str());
+}
+auto reopened = vf::Collection::load("docs.vfidx").value();  // vectors memory-mapped
 ```
 
 ```bash
-vectorforge gen-data --n 100000 --dim 128 --seed 1 --out base.npy
-vectorforge gen-data --n 1000 --dim 128 --seed 2 --out queries.npy
-vectorforge ground-truth --base base.npy --queries queries.npy --metric l2 --k 100 --out gt
+vectorforge gen-data --n 100000 --dim 128 --seed 1 --format fvecs --out base.fvecs
+vectorforge gen-data --n 1000 --dim 128 --seed 2 --format fvecs --out queries.fvecs
+vectorforge ground-truth --base base.fvecs --queries queries.fvecs --metric l2 --k 100 --out gt
+vectorforge build  --input base.fvecs --metric l2 --index hnsw --M 16 --ef-construction 200 --out idx.vfidx
+vectorforge info   idx.vfidx
+vectorforge verify idx.vfidx
+vectorforge search --index idx.vfidx --queries queries.fvecs --k 10 --ef 100 --gt gt
 ```
+
+The pipeline reads TEXMEX (SIFT-format) `.fvecs` vectors and `.ivecs` ground truth
+(`--gt groundtruth.ivecs`); it is tested with generated files of that format, not with the SIFT1M
+download itself.
 
 ## Goals
 
@@ -54,7 +69,7 @@ format, API design, test and benchmark methodology, and the phased implementatio
 No end-to-end performance results are published yet. Numbers will appear here only after the
 benchmark suite has been run, with the raw result files committed under `benchmarks/results/` and the
 methodology described in the design document (§16). Component-level baselines (kernels, top-k
-selection, exact search, a single-configuration HNSW recall/latency sweep) are recorded, with their
+selection, exact search, a single-configuration HNSW recall/latency sweep, index save/load) are recorded, with their
 environment, in `benchmarks/results/`.
 
 ## Building
@@ -72,7 +87,7 @@ cmake --build --preset msvc-release
 ctest --preset msvc-release
 ```
 
-Other presets: `msvc-debug`, `msvc-asan` (AddressSanitizer), `mingw-release` (compile check).
+Other presets: `msvc-debug`, `msvc-asan` (AddressSanitizer, optimised with assertions), `mingw-release` (compile check).
 
 ### Linux
 
@@ -82,7 +97,7 @@ cmake --build --preset linux-gcc-release
 ctest --preset linux-gcc-release
 ```
 
-Sanitizer presets: `linux-clang-asan-ubsan`, `linux-clang-tsan`.
+Sanitizer presets: `linux-clang-asan-ubsan`, `linux-clang-tsan`, `linux-clang-fuzz` (libFuzzer; run `tools/fuzz_index_reader.sh out/build/linux-clang-fuzz 600`).
 
 ### Useful CMake options
 
@@ -94,6 +109,8 @@ Sanitizer presets: `linux-clang-asan-ubsan`, `linux-clang-tsan`.
 | `VF_WARNINGS_AS_ERRORS` | OFF (ON in presets) | treat warnings as errors |
 | `VF_ENABLE_AVX2` | ON | compile AVX2 kernels for runtime dispatch |
 | `VF_NATIVE` | OFF | build for the host CPU (benchmark comparisons only) |
+| `VF_ENABLE_ASSERTS` | OFF | keep internal assertions in optimised builds |
+| `VF_BUILD_FUZZERS` | OFF | libFuzzer targets (Clang; preset `linux-clang-fuzz`) |
 
 ## Repository layout
 

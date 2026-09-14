@@ -1,11 +1,19 @@
 set(VF_CORE_SOURCES
   collection/collection.cpp
+  collection/index_reader.cpp
+  collection/index_writer.cpp
+  collection/snapshot.cpp
   index/flat_backend.cpp
   index/hnsw/hnsw_backend.cpp
   index/hnsw/hnsw_graph.cpp
   index/hnsw/hnsw_insert.cpp
+  index/hnsw/hnsw_io.cpp
   index/hnsw/hnsw_search.cpp
   index/hnsw/hnsw_validator.cpp
+  storage/atomic_file.cpp
+  storage/binary_io.cpp
+  storage/crc32c.cpp
+  storage/format.cpp
   storage/id_map.cpp
   util/dataset_io.cpp
   util/recall.cpp
@@ -23,6 +31,12 @@ set(VF_CORE_SOURCES
   storage/vector_store.cpp
 )
 
+if(WIN32)
+  list(APPEND VF_CORE_SOURCES storage/atomic_file_win32.cpp storage/mapped_file_win32.cpp)
+else()
+  list(APPEND VF_CORE_SOURCES storage/atomic_file_posix.cpp storage/mapped_file_posix.cpp)
+endif()
+
 add_library(vectorforge STATIC ${VF_CORE_SOURCES})
 add_library(vectorforge::vectorforge ALIAS vectorforge)
 
@@ -33,13 +47,18 @@ target_include_directories(vectorforge
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+if(WIN32)
+  # Windows 10 API level (PrefetchVirtualMemory needs Windows 8 or later).
+  target_compile_definitions(vectorforge PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+endif()
+
 vf_set_project_options(vectorforge)
 
 # Floating-point semantics per kernel translation unit (see cmake/SimdFlags.cmake).
 vf_set_strict_fp_source(simd/kernels_scalar.cpp)
+vf_set_autovec_source(simd/kernels_scalar_autovec.cpp)
 # Distance formulas outside the kernels must not be contracted either: HNSW graphs are compared
 # byte for byte across builds (docs/DESIGN.md §15.3) and must match FlatBackend distances.
 vf_set_strict_fp_source(index/flat_backend.cpp)
 vf_set_strict_fp_source(index/hnsw/hnsw_insert.cpp)
 vf_set_strict_fp_source(index/hnsw/hnsw_search.cpp)
-vf_set_autovec_source(simd/kernels_scalar_autovec.cpp)

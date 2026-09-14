@@ -4,7 +4,9 @@
 // references to `vectors` and `deleted`, so it is declared (and therefore destroyed) after them.
 // A CollectionState is heap-allocated and never moved, keeping those references valid.
 
+#include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include <vectorforge/config.hpp>
@@ -33,6 +35,9 @@ struct CollectionState {
   CollectionConfig config;
   bool normalized;
   const KernelTable* kernels;
+  // Provenance, persisted and preserved across save/load (so re-saving is byte-identical).
+  std::string creator;
+  std::uint64_t created_unix_ms = 0;
   VectorStore vectors;
   IdMap ids;
   TombstoneSet deleted;

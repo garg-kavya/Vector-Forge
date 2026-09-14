@@ -43,9 +43,14 @@
     },
     {
       "name": "msvc-asan",
-      "displayName": "MSVC Debug + AddressSanitizer",
+      "displayName": "MSVC RelWithDebInfo + AddressSanitizer + asserts",
       "inherits": "msvc-base",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "VF_SANITIZE": "address", "VF_BUILD_BENCHMARKS": "OFF" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "VF_SANITIZE": "address",
+        "VF_ENABLE_ASSERTS": "ON",
+        "VF_BUILD_BENCHMARKS": "OFF"
+      }
     },
     {
       "name": "mingw-release",
@@ -93,6 +98,19 @@
       }
     },
     {
+      "name": "linux-clang-fuzz",
+      "displayName": "Linux Clang libFuzzer + ASan + UBSan",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "VF_SANITIZE": "address;undefined",
+        "VF_ENABLE_ASSERTS": "ON",
+        "VF_BUILD_FUZZERS": "ON",
+        "VF_BUILD_BENCHMARKS": "OFF"
+      }
+    },
+    {
       "name": "linux-clang-tsan",
       "displayName": "Linux Clang ThreadSanitizer",
       "inherits": "linux-base",
@@ -113,6 +131,7 @@
     { "name": "linux-gcc-release", "configurePreset": "linux-gcc-release" },
     { "name": "linux-clang-release", "configurePreset": "linux-clang-release" },
     { "name": "linux-clang-asan-ubsan", "configurePreset": "linux-clang-asan-ubsan" },
+    { "name": "linux-clang-fuzz", "configurePreset": "linux-clang-fuzz" },
     { "name": "linux-clang-tsan", "configurePreset": "linux-clang-tsan" }
   ],
   "testPresets": [

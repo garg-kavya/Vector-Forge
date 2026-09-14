@@ -3,9 +3,11 @@ include(GoogleTest)
 # Unit tests ------------------------------------------------------------------------------------
 add_executable(vf_unit_tests
   unit/test_aligned_alloc.cpp
+  unit/test_binary_io.cpp
   unit/test_checked_math.cpp
   unit/test_collection_flat.cpp
   unit/test_cpu_features.cpp
+  unit/test_crc32c.cpp
   unit/test_dataset_io.cpp
   unit/test_flat_backend.cpp
   unit/test_hnsw_determinism.cpp
@@ -16,6 +18,7 @@ add_executable(vf_unit_tests
   unit/test_id_map.cpp
   unit/test_kernels.cpp
   unit/test_level_generator.cpp
+  unit/test_mapped_file.cpp
   unit/test_model_flat.cpp
   unit/test_neighbor_select.cpp
   unit/test_normalize.cpp
@@ -72,6 +75,41 @@ gtest_discover_tests(vf_concurrency_tests
   DISCOVERY_MODE PRE_TEST
   PROPERTIES LABELS concurrency)
 
+# Persistence tests ---------------------------------------------------------------------------
+add_executable(vf_persistence_tests
+  persistence/test_atomic_save.cpp
+  persistence/test_corruption.cpp
+  persistence/test_golden_files.cpp
+  persistence/test_persistence_roundtrip.cpp
+)
+target_link_libraries(vf_persistence_tests PRIVATE vectorforge::vectorforge GTest::gtest_main)
+target_include_directories(vf_persistence_tests
+  PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(vf_persistence_tests PRIVATE VF_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+vf_set_project_options(vf_persistence_tests)
+gtest_discover_tests(vf_persistence_tests
+  DISCOVERY_MODE PRE_TEST
+  PROPERTIES LABELS persistence)
+
+# Index reader fuzz target: corpus replay everywhere, libFuzzer binary with VF_BUILD_FUZZERS ----
+add_library(vf_fuzz_index_reader OBJECT fuzz/fuzz_index_reader.cpp)
+target_link_libraries(vf_fuzz_index_reader PRIVATE vectorforge::vectorforge)
+target_include_directories(vf_fuzz_index_reader PRIVATE ${PROJECT_SOURCE_DIR}/src)
+vf_set_project_options(vf_fuzz_index_reader)
+
+add_executable(vf_fuzz_replay fuzz/replay_main.cpp $<TARGET_OBJECTS:vf_fuzz_index_reader>)
+target_link_libraries(vf_fuzz_replay PRIVATE vectorforge::vectorforge)
+vf_set_project_options(vf_fuzz_replay)
+add_test(NAME fuzz.index_reader_replay
+         COMMAND vf_fuzz_replay ${CMAKE_CURRENT_SOURCE_DIR}/data/golden)
+set_tests_properties(fuzz.index_reader_replay PROPERTIES LABELS persistence)
+
+if(VF_BUILD_FUZZERS)
+  add_executable(vf_fuzz_index_reader_libfuzzer $<TARGET_OBJECTS:vf_fuzz_index_reader>)
+  target_link_libraries(vf_fuzz_index_reader_libfuzzer PRIVATE vectorforge::vectorforge)
+  target_link_options(vf_fuzz_index_reader_libfuzzer PRIVATE -fsanitize=fuzzer)
+endif()
+
 # Integration tests ---------------------------------------------------------------------------
 add_executable(vf_index_integration_tests
   integration/test_hnsw_recall.cpp
@@ -108,11 +146,25 @@ if(VF_BUILD_CLI)
                    --queries ${vf_cli_smoke_dir}/queries.fvecs --metric cosine --k 5
                    --out ${vf_cli_smoke_dir}/gt)
   add_test(NAME cli.rejects_bad_args COMMAND vectorforge_cli gen-data --n 0 --dim 8 --out x.npy)
-  set_tests_properties(cli.rejects_bad_args PROPERTIES WILL_FAIL TRUE)
+  add_test(NAME cli.build
+           COMMAND vectorforge_cli build --input ${vf_cli_smoke_dir}/base.npy --metric cosine
+                   --M 8 --ef-construction 32 --out ${vf_cli_smoke_dir}/index.vfidx)
+  add_test(NAME cli.info COMMAND vectorforge_cli info ${vf_cli_smoke_dir}/index.vfidx)
+  add_test(NAME cli.verify COMMAND vectorforge_cli verify ${vf_cli_smoke_dir}/index.vfidx)
+  add_test(NAME cli.search
+           COMMAND vectorforge_cli search --index ${vf_cli_smoke_dir}/index.vfidx
+                   --queries ${vf_cli_smoke_dir}/queries.fvecs --k 5 --ef 64 --gt ${vf_cli_smoke_dir}/gt)
+  add_test(NAME cli.verify_rejects_non_index COMMAND vectorforge_cli verify ${vf_cli_smoke_dir}/base.npy)
+  set_tests_properties(cli.rejects_bad_args cli.verify_rejects_non_index PROPERTIES WILL_FAIL TRUE)
   set_tests_properties(cli.gen_base PROPERTIES FIXTURES_SETUP cli_base)
   set_tests_properties(cli.gen_queries PROPERTIES FIXTURES_SETUP cli_queries)
-  set_tests_properties(cli.ground_truth PROPERTIES FIXTURES_REQUIRED "cli_base;cli_queries")
+  set_tests_properties(cli.ground_truth PROPERTIES FIXTURES_REQUIRED "cli_base;cli_queries" FIXTURES_SETUP cli_gt)
+  set_tests_properties(cli.build PROPERTIES FIXTURES_REQUIRED cli_base FIXTURES_SETUP cli_index)
+  set_tests_properties(cli.info cli.verify PROPERTIES FIXTURES_REQUIRED cli_index)
+  set_tests_properties(cli.search PROPERTIES FIXTURES_REQUIRED "cli_index;cli_queries;cli_gt")
+  set_tests_properties(cli.verify_rejects_non_index PROPERTIES FIXTURES_REQUIRED cli_base)
   set_tests_properties(cli.version cli.gen_base cli.gen_queries cli.ground_truth cli.rejects_bad_args
+                       cli.build cli.info cli.verify cli.search cli.verify_rejects_non_index
                        PROPERTIES LABELS integration)
   file(MAKE_DIRECTORY ${vf_cli_smoke_dir})
 endif()

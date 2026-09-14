@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <new>
@@ -97,7 +98,92 @@ int run(int argc, char** argv) {
                    "Output prefix: writes <prefix>.ids.npy and <prefix>.distances.npy")
       ->required();
 
+  // build ------------------------------------------------------------------------------------
+  vf::cli::BuildOptions build;
+  std::string build_metric = "l2";
+  std::string build_index = "hnsw";
+  CLI::App* build_cmd =
+      app.add_subcommand("build", "Build an index from a dataset file and save it");
+  build_cmd->add_option("--input", build.input, "Vectors (.npy or .fvecs, float32)")
+      ->required()
+      ->check(CLI::ExistingFile);
+  build_cmd->add_option("--ids", build.ids, "External ids (.npy int64/uint64; default row numbers)")
+      ->check(CLI::ExistingFile);
+  build_cmd->add_option("--metric", build_metric, "Metric")
+      ->check(CLI::IsMember({"l2", "ip", "inner_product", "cosine"}))
+      ->capture_default_str();
+  build_cmd->add_option("--index", build_index, "Index type")
+      ->check(CLI::IsMember({"flat", "hnsw"}))
+      ->capture_default_str();
+  build_cmd->add_flag("--normalize", build.config.normalize, "Normalise vectors to unit length");
+  build_cmd->add_option("--M", build.config.hnsw.M, "HNSW links per node")->capture_default_str();
+  build_cmd->add_option("--ef-construction", build.config.hnsw.ef_construction, "HNSW build beam")
+      ->capture_default_str();
+  build_cmd->add_option("--ef-search", build.config.hnsw.ef_search, "Default HNSW query beam")
+      ->capture_default_str();
+  build_cmd->add_option("--seed", build.config.hnsw.seed, "HNSW level seed")->capture_default_str();
+  build_cmd->add_option("--out", build.out, "Output index file (.vfidx)")->required();
+
+  // search -----------------------------------------------------------------------------------
+  vf::cli::SearchOptions search;
+  std::uint32_t search_ef = 0;
+  bool search_no_mmap = false;
+  CLI::App* search_cmd = app.add_subcommand("search", "Query an index file");
+  search_cmd->add_option("--index", search.index, "Index file (.vfidx)")
+      ->required()
+      ->check(CLI::ExistingFile);
+  search_cmd->add_option("--queries", search.queries, "Queries (.npy or .fvecs, float32)")
+      ->required()
+      ->check(CLI::ExistingFile);
+  search_cmd->add_option("--k", search.k, "Neighbours per query")
+      ->check(CLI::Range(1, 1 << 20))
+      ->capture_default_str();
+  search_cmd->add_option("--ef", search_ef, "HNSW beam width (default: the index's ef_search)")
+      ->check(CLI::Range(1, 1 << 20));
+  search_cmd->add_flag("--no-mmap", search_no_mmap, "Copy vectors to memory instead of mapping");
+  search_cmd->add_option("--out", search.out_prefix,
+                         "Output prefix: writes <prefix>.ids.npy and <prefix>.distances.npy");
+  search_cmd->add_option("--gt", search.ground_truth,
+                         "Ground truth: prefix from ground-truth, or a .ivecs id file");
+
+  // info / verify ----------------------------------------------------------------------------
+  std::filesystem::path info_path;
+  CLI::App* info_cmd = app.add_subcommand("info", "Describe an index file");
+  info_cmd->add_option("index", info_path, "Index file (.vfidx)")
+      ->required()
+      ->check(CLI::ExistingFile);
+  std::filesystem::path verify_path;
+  CLI::App* verify_cmd =
+      app.add_subcommand("verify", "Verify checksums, structure and graph invariants");
+  verify_cmd->add_option("index", verify_path, "Index file (.vfidx)")
+      ->required()
+      ->check(CLI::ExistingFile);
+
   CLI11_PARSE(app, argc, argv);
+
+  if (build_cmd->parsed()) {
+    const vf::Result<vf::Metric> metric = vf::parse_metric(build_metric);
+    const vf::Result<vf::IndexType> index = vf::parse_index_type(build_index);
+    if (!metric.ok() || !index.ok()) {
+      return report(!metric.ok() ? metric.status() : index.status());
+    }
+    build.config.metric = metric.value();
+    build.config.index = index.value();
+    return report(vf::cli::run_build(build, std::cout));
+  }
+  if (search_cmd->parsed()) {
+    if (search_ef != 0) {
+      search.ef_search = search_ef;
+    }
+    search.use_mmap = !search_no_mmap;
+    return report(vf::cli::run_search(search, std::cout));
+  }
+  if (info_cmd->parsed()) {
+    return report(vf::cli::run_info(info_path, std::cout));
+  }
+  if (verify_cmd->parsed()) {
+    return report(vf::cli::run_verify(verify_path, std::cout));
+  }
 
   if (gen_cmd->parsed()) {
     gen.spec.distribution = gen_distribution == "uniform"

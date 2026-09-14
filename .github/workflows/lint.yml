@@ -33,6 +33,7 @@ jobs:
       - name: Build generated headers
         run: cmake --build --preset linux-clang-release --target vectorforge vf_cli_commands
       - name: Run clang-tidy on library and CLI sources
+        # Win32-only sources are not in the Linux compilation database (no windows.h).
         run: |
-          git ls-files 'src/*.cpp' 'apps/*.cpp' | xargs -P "$(nproc)" -n 4 \
+          git ls-files 'src/*.cpp' 'apps/*.cpp' ':!:*_win32.cpp' | xargs -P "$(nproc)" -n 4 \
             clang-tidy-18 -p out/build/linux-clang-release --quiet

@@ -30,8 +30,17 @@ bool HnswBackend::shrink_with(InternalId node, std::uint8_t level, InternalId ne
   }
   // dist(new, node) == dist(node, new) bit for bit (index/query_distance.hpp), so reuse it.
   shrink_candidates_.push_back({.distance = new_distance, .id = new_id});
-  std::sort(shrink_candidates_.begin(), shrink_candidates_.end(),
-            [](const ScoredId& a, const ScoredId& b) { return candidate_less(a, b); });
+  // Insertion sort of at most 2M + 1 elements. Unlike std::sort it stays memory-safe if a distance
+  // is NaN (possible only for vector data loaded without checksum verification), where the
+  // comparison is not a strict weak ordering.
+  for (std::size_t i = 1; i < shrink_candidates_.size(); ++i) {
+    const ScoredId key = shrink_candidates_[i];
+    std::size_t j = i;
+    for (; j > 0 && candidate_less(key, shrink_candidates_[j - 1]); --j) {
+      shrink_candidates_[j] = shrink_candidates_[j - 1];
+    }
+    shrink_candidates_[j] = key;
+  }
   select_neighbors(
       shrink_candidates_, graph_.capacity(level), options_.selection, options_.keep_pruned,
       [this](InternalId a, InternalId b) { return node_distance(a, b); }, shrink_selected_,

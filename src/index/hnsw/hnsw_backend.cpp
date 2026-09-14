@@ -19,6 +19,16 @@ Result<std::unique_ptr<HnswBackend>> HnswBackend::create(
                                                       params, options, std::move(graph).value()));
 }
 
+Result<std::unique_ptr<HnswBackend>> HnswBackend::create_loaded(
+    const VectorStore& vectors, const TombstoneSet& deleted, Metric metric, bool normalized,
+    const KernelTable& kernels, const HnswParams& params, HnswGraph graph) {
+  VF_RETURN_IF_ERROR(params.validate());
+  VF_CHECK(graph.m() == params.M && graph.node_count() == vectors.size(),
+           "HnswBackend::create_loaded: graph does not match parameters or vectors");
+  return std::unique_ptr<HnswBackend>(new HnswBackend(
+      vectors, deleted, metric, normalized, kernels, params, HnswBuildOptions{}, std::move(graph)));
+}
+
 HnswBackend::HnswBackend(const VectorStore& vectors, const TombstoneSet& deleted, Metric metric,
                          bool normalized, const KernelTable& kernels, const HnswParams& params,
                          const HnswBuildOptions& options, HnswGraph graph)

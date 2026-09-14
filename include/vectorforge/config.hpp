@@ -67,4 +67,21 @@ struct InsertOptions {
   bool upsert = false;
 };
 
+// Checksum verification when loading an index file (docs/storage-format.md). Structural
+// validation (bounds, sizes, graph invariants) always runs, whatever the level.
+enum class Verify : std::uint8_t {
+  Auto,      // Full for heap loads, Metadata for memory-mapped loads
+  None,      // header and section table checksums only
+  Metadata,  // every section except VECTORS (keeps mmap loads lazy)
+  Full,      // every section
+};
+
+struct LoadOptions {
+  // Serve vectors from a read-only memory mapping of the file instead of copying them to the heap.
+  bool use_mmap = true;
+  Verify verify = Verify::Auto;
+  // Ask the OS to page the mapped vectors in up front (predictable first-query latency).
+  bool prefault = false;
+};
+
 }  // namespace vf

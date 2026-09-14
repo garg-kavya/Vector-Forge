@@ -40,6 +40,21 @@ All notable changes to this project are documented here. The format follows
   minimal `vf_bench` (build, ef_search sweep, recall, latency, distance computations, Flat
   comparison). `docs/hnsw.md`.
 
+- Phase 4: persistence. `.vfidx` format 1.0 (`docs/storage-format.md`): checksummed (CRC-32C
+  slice-by-8) header, section table and sections; canonical layout with page-aligned vectors.
+  `Collection::save` (atomic temp + sync + rename, byte-identical re-saves) and
+  `Collection::load(path, LoadOptions)` with heap or read-only mmap loading (`MappedFile`, Win32 and
+  POSIX; inserts continue in heap chunks after the mapped base), `Verify` levels and complete
+  validation of untrusted files. Generation snapshots with MANIFEST, garbage collection and a
+  fault-injection hook. CLI `build`, `search` (latency, recall against npy or `.ivecs` ground
+  truth), `info`, `verify`. Tests: CRC known answers, binary codecs, mapped files, atomic writes,
+  round trips in every load mode, loaded collections evolving identically, truncation and
+  every-byte bit-flip corruption suites, hostile values with valid checksums, crash injection for
+  saves and snapshots, golden files from an independent Python writer (`tools/make_golden.py`),
+  CLI pipeline on SIFT-format files. libFuzzer target for the reader (preset `linux-clang-fuzz`,
+  corpus replay test everywhere). `vf_bench` storage scenarios (save, heap/mmap load).
+  CI: Windows MSVC ASan job, fuzz smoke job, nightly 10-minute fuzz workflow.
+
 - Fault-injection tests (`test_exception_safety`): every allocation of every insert fails in turn;
   failed inserts must leave collections unchanged and fully searchable. Concurrent-read test
   (`vf_concurrency_tests`) for the const-member thread-safety contract, clean under TSan.
@@ -55,6 +70,9 @@ All notable changes to this project are documented here. The format follows
   `operator new`, which ThreadSanitizer's runtime also defines. That binary is now skipped under TSan.
 
 ### Changed
+- `msvc-asan` builds RelWithDebInfo with `VF_ENABLE_ASSERTS=ON` (was Debug), so the allocation
+  failure-injection tests also run under MSVC ASan.
+- HNSW back-link shrinking uses an insertion sort that stays well-defined for NaN distances.
 - `Collection::create` accepts `IndexType::Hnsw` (previously `FailedPrecondition`).
 - `IndexBackend::search` may throw `std::bad_alloc` (growing HNSW search contexts).
 - `FlatBackend` distance formulas are compiled without floating-point contraction.

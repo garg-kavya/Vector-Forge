@@ -17,11 +17,14 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
 #include <vectorforge/status.hpp>
 #include <vectorforge/types.hpp>
+
+#include "storage/tombstones.hpp"
 
 namespace vf::detail {
 
@@ -65,6 +68,15 @@ class IdMap {
 
   // Pre-allocates room for `additional` new keys and labels so that commit() cannot allocate.
   void reserve_capacity(std::size_t additional);
+
+  // Labels of all rows, indexed by internal id.
+  [[nodiscard]] std::span<const ExternalId> labels() const noexcept { return labels_; }
+
+  // Rebuilds a map from persisted state: `labels[i]` labels row i, and every row not marked in
+  // `deleted` maps its label. Errors: CorruptData if a live row's label is kInvalidExternalId or
+  // is shared by two live rows. Throws std::bad_alloc.
+  [[nodiscard]] static Result<IdMap> restore(std::vector<ExternalId> labels,
+                                             const TombstoneSet& deleted);
 
   // Approximate heap bytes (labels exact; hash map estimated from bucket and node counts).
   [[nodiscard]] std::size_t labels_bytes() const noexcept;

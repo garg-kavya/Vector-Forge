@@ -8,6 +8,9 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <span>
+#include <utility>
 #include <vector>
 
 #include <vectorforge/types.hpp>
@@ -42,6 +45,28 @@ class TombstoneSet {
   [[nodiscard]] bool test(InternalId id) const noexcept {
     const std::size_t index = id / 64U;
     return index < words_.size() && ((words_[index] >> (id % 64U)) & 1U) != 0U;
+  }
+
+  // Bitset words (bit i of word w marks row w * 64 + i); may extend past the last row.
+  [[nodiscard]] std::span<const std::uint64_t> words() const noexcept { return words_; }
+
+  // Tombstones for `rows` rows from persisted words (exactly ceil(rows / 64) of them). Returns
+  // nullopt if the word count is wrong or a bit beyond the last row is set.
+  [[nodiscard]] static std::optional<TombstoneSet> restore(std::vector<std::uint64_t> words,
+                                                           std::uint64_t rows) {
+    if (words.size() != (rows + 63U) / 64U) {
+      return std::nullopt;
+    }
+    const auto tail_bits = static_cast<unsigned>(rows % 64U);
+    if (tail_bits != 0 && (words.back() >> tail_bits) != 0U) {
+      return std::nullopt;
+    }
+    TombstoneSet set;
+    for (const std::uint64_t w : words) {
+      set.count_ += static_cast<std::uint64_t>(std::popcount(w));
+    }
+    set.words_ = std::move(words);
+    return set;
   }
 
   [[nodiscard]] std::uint64_t count() const noexcept { return count_; }
