@@ -5,6 +5,7 @@ add_library(vf_cli_commands STATIC
   cmd_gt.cpp
   cmd_info.cpp
   cmd_search.cpp
+  pool.cpp
 )
 target_include_directories(vf_cli_commands
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}

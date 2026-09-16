@@ -71,6 +71,19 @@ All notable changes to this project are documented here. The format follows
   CI runs the full test suite on both tiers and the ISA leak check on GCC, Clang and MSVC.
   `docs/simd.md`, ADR-0002.
 
+- Phase 6a: thread pool and Level A concurrency. Public `vf::ThreadPool` (`std::jthread` workers,
+  `submit`/`try_submit` futures, `parallel_for` with caller participation, inline nested calls,
+  first-exception propagation, idempotent `shutdown`). `vf::Collection` is now fully thread-safe:
+  a fair reader/writer lock (`detail::FairSharedMutex`: writer preference plus a reader quota),
+  a writer mutex, time-bounded (2 ms) `add_batch` lock sections, state held in a `shared_ptr`.
+  `Collection::compact()` drops removed rows (and moves mapped vectors to the heap) while searches
+  continue. `search_batch` runs queries on an optional pool; `add_batch` normalises rows on it.
+  CLI `--threads` for `ground-truth` and `build`. Tests: thread pool, concurrent search against
+  writers (Flat and HNSW), searches during compaction, a writer/compactor/saver/reader stress test
+  checked against a model (label `stress`), compaction. `vf_bench` scenarios `threads` and
+  `ingest`. Nightly workflow repeating the stress tests 100 times under TSan and in release.
+  `docs/concurrency.md`.
+
 - Fault-injection tests (`test_exception_safety`): every allocation of every insert fails in turn;
   failed inserts must leave collections unchanged and fully searchable. Concurrent-read test
   (`vf_concurrency_tests`) for the const-member thread-safety contract, clean under TSan.

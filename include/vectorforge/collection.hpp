@@ -5,9 +5,14 @@
 // A collection stores float32 vectors of a fixed dimension under user-chosen 64-bit ids and answers
 // k-nearest-neighbour queries under its metric (docs/DESIGN.md §8.1).
 //
-// Thread safety (Phase 3): thread-compatible. Const member functions may be called concurrently
-// with each other; non-const member functions require exclusive access (no concurrent readers or
-// writers). Built-in synchronisation arrives in Phase 6.
+// Thread safety (docs/concurrency.md): every member function may be called concurrently from any
+// number of threads. Reads (search*, get, contains, size, stats, save) run in parallel under a
+// shared lock. Mutations (add, add_batch, remove) are serialised and block reads only while they
+// modify the collection; add_batch holds the lock for at most about 2 ms at a time so that searches
+// interleave with long ingestions (the lock is fair: docs/concurrency.md "Fairness"). compact()
+// lets searches continue while it rebuilds and blocks them only for the final swap. A search that
+// runs concurrently with remove(id) may or may not return id; a search that starts after
+// remove(id) returned never does.
 //
 // Index types:
 //   IndexType::Flat - exact search; results are the true k nearest neighbours.
@@ -29,6 +34,8 @@
 #include <vectorforge/types.hpp>
 
 namespace vf {
+
+class ThreadPool;
 
 namespace detail {
 struct CollectionFactory;
@@ -57,6 +64,12 @@ struct CollectionStats {
   bool normalized = false;
   SimdLevel simd = SimdLevel::Scalar;
   MemoryUsage memory;
+};
+
+struct CompactStats {
+  std::uint64_t rows_before = 0;   // stored rows before compaction
+  std::uint64_t removed_rows = 0;  // tombstoned rows dropped
+  std::uint64_t rows_after = 0;    // stored rows after compaction (= live vectors)
 };
 
 class Collection {
@@ -100,17 +113,27 @@ class Collection {
   // mutation (sizes, values, duplicate ids within the batch, existing ids unless upsert), so
   // validation errors leave the collection unchanged. Returns the number of vectors inserted.
   // A failure after validation (index error) returns the error; rows before it stay inserted and
-  // the failing row leaves no trace. std::bad_alloc propagates with the same semantics.
+  // the failing row leaves no trace. std::bad_alloc propagates with the same semantics. Other
+  // writers wait for the whole batch; searches may observe a partially inserted batch. With a
+  // `pool`, normalisation runs in parallel.
   [[nodiscard]] Result<std::size_t> add_batch(std::span<const ExternalId> ids,
                                               std::span<const float> rows,
-                                              InsertOptions options = {});
+                                              InsertOptions options = {},
+                                              ThreadPool* pool = nullptr);
 
   // Tombstones a vector. Errors: NotFound.
   [[nodiscard]] Status remove(ExternalId id);
 
+  // Rebuilds the collection without removed vectors, reclaiming their memory. External ids and
+  // stored vectors are kept; internal order is preserved, but an HNSW graph is rebuilt, so
+  // approximate results can differ afterwards. A memory-mapped collection moves to heap memory.
+  // Needs memory for both copies while it runs. Errors: ResourceExhausted; std::bad_alloc
+  // propagates (the collection is unchanged on any failure).
+  [[nodiscard]] Result<CompactStats> compact();
+
   // Copy of the stored vector (normalised for normalised collections). Errors: NotFound.
   [[nodiscard]] Result<std::vector<float>> get(ExternalId id) const;
-  [[nodiscard]] bool contains(ExternalId id) const noexcept;
+  [[nodiscard]] bool contains(ExternalId id) const;
 
   // k nearest neighbours of `query`, ascending by distance (ties: older insertions first). Exact
   // for Flat; approximate for HNSW, which explores a beam of max(ef_search, k) candidates
@@ -131,14 +154,15 @@ class Collection {
 
   // Searches nq row-major queries. For query i, slots [i*k, (i+1)*k) of out_ids/out_distances
   // receive the results; counts[i] is the number of real results and unused slots are padded with
-  // kInvalidExternalId / +infinity. All queries are validated before any output is written.
+  // kInvalidExternalId / +infinity. All queries are validated before any output is written. With a
+  // `pool`, queries run in parallel on its workers and the calling thread (results are identical).
   [[nodiscard]] Status search_batch(std::span<const float> queries, std::size_t nq,
                                     const SearchParams& params, std::span<ExternalId> out_ids,
-                                    std::span<float> out_distances,
-                                    std::span<std::uint32_t> counts) const;
+                                    std::span<float> out_distances, std::span<std::uint32_t> counts,
+                                    ThreadPool* pool = nullptr) const;
 
   // Number of searchable vectors.
-  [[nodiscard]] std::size_t size() const noexcept;
+  [[nodiscard]] std::size_t size() const;
   [[nodiscard]] CollectionStats stats() const;
   [[nodiscard]] const CollectionConfig& config() const noexcept;
 

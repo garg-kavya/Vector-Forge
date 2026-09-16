@@ -98,6 +98,8 @@ int run(int argc, char** argv) {
       ->add_option("--out", gt.out_prefix,
                    "Output prefix: writes <prefix>.ids.npy and <prefix>.distances.npy")
       ->required();
+  gt_cmd->add_option("--threads", gt.threads, "Threads (0 = all hardware threads)")
+      ->capture_default_str();
 
   // build ------------------------------------------------------------------------------------
   vf::cli::BuildOptions build;
@@ -124,6 +126,8 @@ int run(int argc, char** argv) {
       ->capture_default_str();
   build_cmd->add_option("--seed", build.config.hnsw.seed, "HNSW level seed")->capture_default_str();
   build_cmd->add_option("--out", build.out, "Output index file (.vfidx)")->required();
+  build_cmd->add_option("--threads", build.threads, "Threads (0 = all hardware threads)")
+      ->capture_default_str();
 
   // search -----------------------------------------------------------------------------------
   vf::cli::SearchOptions search;

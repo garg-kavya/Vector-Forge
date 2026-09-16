@@ -1046,6 +1046,8 @@ No data race by construction. TSan validates the implementation of this argument
 - `std::shared_mutex` fairness is implementation-defined (Windows SRWLOCK: no fairness guarantee; glibc rwlock
   configuration differs) → possible writer starvation under constant search load. Mitigation: batch writes, and
   if measured starvation occurs, a writer-preferring gate (writer sets a flag readers check before acquiring).
+  *As built:* starvation was measured in both directions; the implementation uses a fair reader/writer lock
+  and 2 ms write sections (`docs/concurrency.md` "Fairness").
 - Reader lock acquisition writes to a shared counter → cache-line ping-pong across 16 threads. At HNSW query costs
   this is expected to be small; the thread-scaling benchmark (1→16 threads) will show it.
 
@@ -1961,6 +1963,21 @@ flowchart LR
 - **Tests:** §11.7 thread pool + Level A.
 - **Benchmarks:** batch search QPS vs threads 1..16 (Flat and HNSW); search latency during ingestion.
 - **Acceptance:** TSan clean; stress tests pass 100 iterations nightly; thread-safety table published in headers + docs.
+- **Implementation notes (as built):** the complete description is `docs/concurrency.md`; results in
+  `benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6a`.
+  - `parallel_for` lives in `thread_pool.hpp` (no separate `parallel_for.hpp`). Instead of a latch the caller
+    waits on a condition variable in a `shared_ptr`-owned block that helpers also own, so a helper never touches
+    the caller's stack after the caller returns. At most `size()` helpers are queued per call.
+  - `compact()` takes no pool (rebuilding HNSW in parallel needs Level B); it returns `CompactStats`.
+    `ContextPool` leases were already mutex-protected since Phase 3.
+  - The lock is not `std::shared_mutex`: SRWLOCK starved searches behind `add_batch` (p99.9 225 ms) and the first
+    mitigation (reader hand-off) starved the writer (680 vec/s). `detail::FairSharedMutex` (writer preference +
+    reader quota on writer unlock) bounds both waits; `add_batch` sections are bounded by time (2 ms), not rows,
+    because a 64-row HNSW section is ~13 ms. A `writers` mutex serialises mutations for the whole call so batch
+    validation stays valid across sections.
+  - The CLI gained `--threads` for `ground-truth` and `build`; `vf_bench` gained the `threads` and `ingest`
+    scenarios (`--threads`, `--repeat`, `--batch`). The nightly workflow repeats the `stress` label 100 times
+    under TSan and in a GCC release build.
 
 ### Phase 6b — Level B concurrent HNSW insertion
 

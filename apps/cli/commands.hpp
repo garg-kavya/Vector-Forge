@@ -5,11 +5,13 @@
 #include <cstdint>
 #include <filesystem>
 #include <iosfwd>
+#include <memory>
 #include <optional>
 #include <string>
 
 #include <vectorforge/config.hpp>
 #include <vectorforge/status.hpp>
+#include <vectorforge/thread_pool.hpp>
 #include <vectorforge/types.hpp>
 
 #include "util/synthetic.hpp"
@@ -36,9 +38,10 @@ struct GroundTruthOptions {
   // Writes <out_prefix>.ids.npy (int64, nq x k, -1 padding) and
   // <out_prefix>.distances.npy (float32, nq x k, +inf padding).
   std::filesystem::path out_prefix;
+  std::uint32_t threads = 0;  // search threads including the caller; 0 = all hardware threads
 };
 
-// Exact k-NN ground truth with a Flat collection (single-threaded in this version).
+// Exact k-NN ground truth with a Flat collection (queries in parallel).
 [[nodiscard]] Status run_ground_truth(const GroundTruthOptions& options, std::ostream& log);
 
 // Output paths used by run_ground_truth and run_search.
@@ -53,9 +56,10 @@ struct BuildOptions {
   std::filesystem::path ids;
   CollectionConfig config;  // dim is taken from the input
   std::filesystem::path out;
+  std::uint32_t threads = 0;  // worker threads including the caller; 0 = all hardware threads
 };
 
-// Builds a collection from a dataset file and saves it (single-threaded in this version).
+// Builds a collection from a dataset file and saves it.
 [[nodiscard]] Status run_build(const BuildOptions& options, std::ostream& log);
 
 struct SearchOptions {
@@ -79,5 +83,9 @@ struct SearchOptions {
 
 // Loads with full checksum verification and checks graph invariants. Returns the first problem.
 [[nodiscard]] Status run_verify(const std::filesystem::path& index, std::ostream& log);
+
+// Pool giving `threads` threads together with the calling thread (0 = hardware concurrency);
+// nullptr when one thread is requested.
+[[nodiscard]] std::unique_ptr<ThreadPool> make_pool(std::uint32_t threads);
 
 }  // namespace vf::cli

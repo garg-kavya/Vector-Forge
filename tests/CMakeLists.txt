@@ -6,6 +6,7 @@ add_executable(vf_unit_tests
   unit/test_binary_io.cpp
   unit/test_checked_math.cpp
   unit/test_collection_flat.cpp
+  unit/test_compact.cpp
   unit/test_cpu_features.cpp
   unit/test_crc32c.cpp
   unit/test_dataset_io.cpp
@@ -78,6 +79,8 @@ endif()
 find_package(Threads REQUIRED)
 add_executable(vf_concurrency_tests
   concurrency/test_concurrent_reads.cpp
+  concurrency/test_concurrent_search.cpp
+  concurrency/test_thread_pool.cpp
 )
 target_link_libraries(vf_concurrency_tests
   PRIVATE vectorforge::vectorforge GTest::gtest_main Threads::Threads)
@@ -87,6 +90,19 @@ vf_set_project_options(vf_concurrency_tests)
 gtest_discover_tests(vf_concurrency_tests
   DISCOVERY_MODE PRE_TEST
   PROPERTIES LABELS concurrency)
+
+# Stress tests: part of every run; the nightly workflow repeats them (ctest -L stress --repeat).
+add_executable(vf_stress_tests
+  concurrency/test_rw_stress.cpp
+)
+target_link_libraries(vf_stress_tests
+  PRIVATE vectorforge::vectorforge GTest::gtest_main Threads::Threads)
+target_include_directories(vf_stress_tests
+  PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+vf_set_project_options(vf_stress_tests)
+gtest_discover_tests(vf_stress_tests
+  DISCOVERY_MODE PRE_TEST
+  PROPERTIES LABELS "concurrency;stress")
 
 # Persistence tests ---------------------------------------------------------------------------
 add_executable(vf_persistence_tests

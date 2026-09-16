@@ -1,0 +1,9 @@
+{
+  "schema": 1, "suite": "ingest",
+  "git": {"sha": "c6c2f9dd9a7d-dirty"},
+  "machine": {"cpu": "AMD Ryzen 7 4800H with Radeon Graphics"},
+  "build": {"compiler": "MSVC 19.50.35728.0", "type": "Release", "simd_tier": "avx2", "kernel_table": "avx2"},
+  "dataset": {"distribution": "gmm", "n": 100000, "dim": 128, "metric": "l2", "seed": 1},
+  "params": {"index": "hnsw", "M": 16, "ef_construction": 200, "k": 10, "ef_search": 64, "preloaded": 50000, "ingested": 50000, "batch": 1000, "reader_threads": 1},
+  "result": {"ingest_seconds": 11.528, "ingest_vectors_per_s": 4337.26, "search_idle": {"queries": 1000, "p50_us": 64.9, "p99_us": 102.1, "p999_us": 148, "max_us": 148}, "search_during_ingest": {"queries": 12141, "p50_us": 90.7, "p99_us": 147.6, "p999_us": 224860, "max_us": 675680}}
+}

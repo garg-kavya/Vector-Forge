@@ -3,6 +3,7 @@ set(VF_CORE_SOURCES
   collection/index_reader.cpp
   collection/index_writer.cpp
   collection/snapshot.cpp
+  concurrency/thread_pool.cpp
   index/flat_backend.cpp
   index/hnsw/hnsw_backend.cpp
   index/hnsw/hnsw_graph.cpp
@@ -53,6 +54,9 @@ if(WIN32)
 endif()
 
 vf_set_project_options(vectorforge)
+
+find_package(Threads REQUIRED)
+target_link_libraries(vectorforge PUBLIC Threads::Threads)
 
 # AVX2 + FMA kernels: the only library translation unit with non-baseline instruction-set flags,
 # built as an object library so the flags cannot reach other sources (docs/simd.md).

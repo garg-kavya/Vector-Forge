@@ -5,13 +5,15 @@ VectorForge is a C++20 vector similarity search engine built from first principl
 distance kernels, a thread pool, a versioned on-disk format with memory-mapped vectors, an HTTP API
 and Python bindings.
 
-> **Status:** early development — Phases 0–5 of the [engineering design](docs/DESIGN.md) are
+> **Status:** early development — Phases 0–6a of the [engineering design](docs/DESIGN.md) are
 > complete: toolchain; core types, deterministic RNG, scalar distance kernels, vector storage; exact
 > (Flat) search, dataset I/O and the `vectorforge gen-data` / `ground-truth` CLI; single-threaded
 > HNSW approximate search ([docs/hnsw.md](docs/hnsw.md)); checksummed, crash-safe persistence with
 > memory-mapped loading and the `build` / `search` / `info` / `verify` CLI
 > ([docs/storage-format.md](docs/storage-format.md)); AVX2 + FMA distance kernels selected at runtime
-> ([docs/simd.md](docs/simd.md)). Concurrency, HTTP and Python are *planned*, not implemented.
+> ([docs/simd.md](docs/simd.md)); a thread pool, parallel batch search and a fully thread-safe
+> `Collection` with a fair reader/writer lock ([docs/concurrency.md](docs/concurrency.md)).
+> Concurrent HNSW insertion, HTTP and Python are *planned*, not implemented.
 
 ## Quick start (current API)
 
@@ -56,6 +58,12 @@ Distance kernels use AVX2 + FMA when the CPU supports them and scalar code other
 binary). On the development laptop (Ryzen 7 4800H, MSVC, one thread) AVX2 made HNSW queries over
 100 000 × 128-d vectors 1.88× faster at recall 0.991 and Flat scans 2.97× faster
 ([results](benchmarks/results/2026-09-14_ryzen7-4800h_msvc-release_phase5/README.md)).
+
+`vf::Collection` may be shared between threads: searches run in parallel, mutations are serialised,
+and `compact()` rebuilds without blocking searches. Pass a `vf::ThreadPool` to `search_batch` /
+`add_batch` (or `--threads` to `ground-truth` / `build`) to use several cores; batch HNSW search
+reached 4.8× at 16 threads on the same laptop
+([results](benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6a/README.md)).
 
 ## Goals
 

@@ -4,18 +4,23 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <new>
+#include <optional>
+#include <shared_mutex>
 #include <span>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <vectorforge/collection.hpp>
+#include <vectorforge/thread_pool.hpp>
 #include <vectorforge/version.hpp>
 
 #include "collection/collection_factory.hpp"
 #include "collection/collection_state.hpp"
 #include "collection/index_file.hpp"
+#include "concurrency/fair_shared_mutex.hpp"
 #include "core/assert.hpp"
 #include "core/checked_math.hpp"
 #include "core/validation.hpp"
@@ -115,11 +120,52 @@ Status insert_reserved(CollectionState& state, const IdMap::Reservation& reserva
   return {};
 }
 
+// Creates the configured backend over `state`'s vectors and tombstones.
+Status attach_backend(CollectionState& state) {
+  switch (state.config.index) {
+    case IndexType::Flat:
+      state.backend = std::make_unique<FlatBackend>(
+          state.vectors, state.deleted, state.config.metric, state.normalized, *state.kernels);
+      return {};
+    case IndexType::Hnsw: {
+      Result<std::unique_ptr<HnswBackend>> hnsw =
+          HnswBackend::create(state.vectors, state.deleted, state.config.metric, state.normalized,
+                              *state.kernels, state.config.hnsw);
+      if (!hnsw.ok()) {
+        return hnsw.status();
+      }
+      state.backend = std::move(hnsw).value();
+      return {};
+    }
+  }
+  return Status::invalid_argument("unknown index type");
+}
+
+using ReadLock = std::shared_lock<FairSharedMutex>;
+using WriteLock = std::unique_lock<FairSharedMutex>;
+
+// Longest exclusive-lock section in add_batch() (at least one row per section): searches queued
+// behind a batch run between sections (docs/concurrency.md, "ingest" measurements).
+constexpr std::chrono::microseconds kWriteSliceTime{2000};
+// Queries per parallel_for chunk in search_batch().
+constexpr std::size_t kSearchGrain = 16;
+// Rows per parallel_for chunk when normalising a batch.
+constexpr std::size_t kNormalizeGrain = 256;
+
 }  // namespace
 }  // namespace detail
 
 struct Collection::Impl {
-  std::unique_ptr<detail::CollectionState> state;
+  explicit Impl(std::shared_ptr<detail::CollectionState> initial)
+      : config(initial->config), state(std::move(initial)) {}
+
+  const CollectionConfig config;  // immutable copy: config() needs no lock
+  // Level A synchronisation (docs/concurrency.md): readers hold `rw` shared; mutations hold
+  // `writers` and then `rw` exclusively; compact() holds `writers` and `rw` shared while it builds,
+  // then `rw` exclusively for the swap.
+  mutable detail::FairSharedMutex rw;
+  std::mutex writers;
+  std::shared_ptr<detail::CollectionState> state;
 };
 
 Collection::Collection(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {
@@ -135,12 +181,12 @@ Result<std::unique_ptr<Collection>> CollectionFactory::load_from_memory(
   if (!state.ok()) {
     return state.status();
   }
-  auto impl = std::make_unique<Collection::Impl>();
-  impl->state = std::move(state).value();
+  auto impl = std::make_unique<Collection::Impl>(std::move(state).value());
   return std::unique_ptr<Collection>(new Collection(std::move(impl)));
 }
 
 Status CollectionFactory::save_to(const Collection& collection, ByteSink& sink) {
+  const detail::ReadLock lock(collection.impl_->rw);
   return write_index(*collection.impl_->state, sink);
 }
 
@@ -178,12 +224,12 @@ Result<std::unique_ptr<Collection>> Collection::load(const std::filesystem::path
                         ? detail::AccessPattern::Random
                         : detail::AccessPattern::Sequential);
   }
-  auto impl = std::make_unique<Impl>();
-  impl->state = std::move(state).value();
+  auto impl = std::make_unique<Impl>(std::move(state).value());
   return std::unique_ptr<Collection>(new Collection(std::move(impl)));
 }
 
 Status Collection::save(const std::filesystem::path& file) const {
+  const detail::ReadLock lock(impl_->rw);
   const detail::CollectionState& s = *impl_->state;
   return detail::write_atomic(
       file, [&s](detail::ByteSink& sink) { return detail::write_index(s, sink); });
@@ -196,47 +242,34 @@ Result<std::unique_ptr<Collection>> Collection::create(const CollectionConfig& c
   if (!store.ok()) {
     return store.status();
   }
-  const detail::KernelTable& kernels = detail::kernels();
-  auto state = std::make_unique<detail::CollectionState>(config, std::move(store).value(), kernels);
+  auto state = std::make_unique<detail::CollectionState>(config, std::move(store).value(),
+                                                         detail::kernels());
   state->creator = "vectorforge " + std::string(kVersion);
   state->created_unix_ms =
       static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                      std::chrono::system_clock::now().time_since_epoch())
                                      .count());
-  switch (config.index) {
-    case IndexType::Flat:
-      state->backend = std::make_unique<detail::FlatBackend>(
-          state->vectors, state->deleted, config.metric, state->normalized, kernels);
-      break;
-    case IndexType::Hnsw: {
-      Result<std::unique_ptr<detail::HnswBackend>> hnsw = detail::HnswBackend::create(
-          state->vectors, state->deleted, config.metric, state->normalized, kernels, config.hnsw);
-      if (!hnsw.ok()) {
-        return hnsw.status();
-      }
-      state->backend = std::move(hnsw).value();
-      break;
-    }
-  }
+  VF_RETURN_IF_ERROR(detail::attach_backend(*state));
   VF_CHECK(state->backend != nullptr, "Collection::create: validated index type has no backend");
 
-  auto impl = std::make_unique<Impl>();
-  impl->state = std::move(state);
+  auto impl = std::make_unique<Impl>(std::move(state));
   return std::unique_ptr<Collection>(new Collection(std::move(impl)));
 }
 
 Status Collection::add(ExternalId id, std::span<const float> vector, InsertOptions options) {
-  detail::CollectionState& s = *impl_->state;
-  VF_RETURN_IF_ERROR(detail::validate_vector(vector, s.config.dim));
+  VF_RETURN_IF_ERROR(detail::validate_vector(vector, impl_->config.dim));
 
   std::vector<float> normalized;
   std::span<const float> row = vector;
-  if (s.normalized) {
+  if (impl_->config.effective_normalize()) {
     normalized.assign(vector.begin(), vector.end());
-    VF_RETURN_IF_ERROR(detail::normalize_inplace(normalized, *s.kernels));
+    VF_RETURN_IF_ERROR(detail::normalize_inplace(normalized, detail::kernels()));
     row = normalized;
   }
 
+  const std::lock_guard<std::mutex> writer(impl_->writers);
+  const detail::WriteLock lock(impl_->rw);
+  detail::CollectionState& s = *impl_->state;
   Result<detail::IdMap::Reservation> reservation = s.ids.reserve(id, options.upsert);
   if (!reservation.ok()) {
     return reservation.status();
@@ -245,16 +278,17 @@ Status Collection::add(ExternalId id, std::span<const float> vector, InsertOptio
 }
 
 Result<std::size_t> Collection::add_batch(std::span<const ExternalId> ids,
-                                          std::span<const float> rows, InsertOptions options) {
-  detail::CollectionState& s = *impl_->state;
+                                          std::span<const float> rows, InsertOptions options,
+                                          ThreadPool* pool) {
   const std::size_t n = ids.size();
-  const std::uint32_t dim = s.config.dim;
+  const std::uint32_t dim = impl_->config.dim;
+  const bool normalize = impl_->config.effective_normalize();
   VF_RETURN_IF_ERROR(detail::validate_batch(rows, n, dim));
   if (n == 0) {
     return std::size_t{0};
   }
 
-  // Keys: reserved value, duplicates within the batch, existing keys.
+  // Keys: reserved value, duplicates within the batch.
   std::vector<ExternalId> sorted(ids.begin(), ids.end());
   std::sort(sorted.begin(), sorted.end());
   const auto dup = std::adjacent_find(sorted.begin(), sorted.end());
@@ -266,55 +300,78 @@ Result<std::size_t> Collection::add_batch(std::span<const ExternalId> ids,
     return Status::invalid_argument("external id " + std::to_string(kInvalidExternalId) +
                                     " is reserved");
   }
-  if (!options.upsert) {
-    for (const ExternalId id : ids) {
-      if (s.ids.contains(id)) {
-        return Status::already_exists("id " + std::to_string(id) + " already exists");
-      }
-    }
-  }
-  if (s.vectors.size() + n > s.vectors.max_rows()) {
-    return Status::resource_exhausted("batch of " + std::to_string(n) +
-                                      " vectors exceeds collection capacity");
-  }
 
-  // Normalisability of every row is checked before mutating anything.
-  if (s.normalized) {
+  // Normalised copies are computed (and every row checked for normalisability) before locking.
+  std::vector<float> normalized_rows;
+  if (normalize) {
+    normalized_rows.assign(rows.begin(), rows.end());
+    const detail::KernelTable& kernels = detail::kernels();
+    std::vector<Status> failures(n);
+    auto normalize_range = [&](std::size_t lo, std::size_t hi) {
+      for (std::size_t i = lo; i < hi; ++i) {
+        failures[i] = detail::normalize_inplace(
+            std::span<float>(normalized_rows).subspan(i * dim, dim), kernels);
+      }
+    };
+    if (pool != nullptr) {
+      pool->parallel_for(0, n, detail::kNormalizeGrain, normalize_range);
+    } else {
+      normalize_range(0, n);
+    }
     for (std::size_t i = 0; i < n; ++i) {
-      const Result<float> inv = detail::inverse_norm(rows.subspan(i * dim, dim), *s.kernels);
-      if (!inv.ok()) {
-        return Status::invalid_argument("row " + std::to_string(i) + ": " + inv.status().message());
+      if (!failures[i].ok()) {
+        return Status::invalid_argument("row " + std::to_string(i) + ": " + failures[i].message());
       }
     }
   }
+  const std::span<const float> data = normalize ? std::span<const float>(normalized_rows) : rows;
 
-  VF_RETURN_IF_ERROR(s.vectors.reserve(s.vectors.size() + n));
-  s.ids.reserve_capacity(n);
-  s.deleted.ensure_size(s.vectors.size() + n);
+  // Holding `writers` for the whole batch keeps the validation below valid while the exclusive
+  // lock is released between slices so that searches can run.
+  const std::lock_guard<std::mutex> writer(impl_->writers);
+  {
+    const detail::WriteLock lock(impl_->rw);
+    detail::CollectionState& s = *impl_->state;
+    if (!options.upsert) {
+      for (const ExternalId id : ids) {
+        if (s.ids.contains(id)) {
+          return Status::already_exists("id " + std::to_string(id) + " already exists");
+        }
+      }
+    }
+    if (s.vectors.size() + n > s.vectors.max_rows()) {
+      return Status::resource_exhausted("batch of " + std::to_string(n) +
+                                        " vectors exceeds collection capacity");
+    }
+    VF_RETURN_IF_ERROR(s.vectors.reserve(s.vectors.size() + n));
+    s.ids.reserve_capacity(n);
+    s.deleted.ensure_size(s.vectors.size() + n);
+  }
 
-  std::vector<float> scratch(s.normalized ? dim : 0);
   std::size_t inserted = 0;
-  for (std::size_t i = 0; i < n; ++i) {
-    std::span<const float> row = rows.subspan(i * dim, dim);
-    if (s.normalized) {
-      std::copy(row.begin(), row.end(), scratch.begin());
-      VF_RETURN_IF_ERROR(detail::normalize_inplace(scratch, *s.kernels));
-      row = scratch;
-    }
-    Result<detail::IdMap::Reservation> reservation = s.ids.reserve(ids[i], options.upsert);
-    if (!reservation.ok()) {
-      return reservation.status();  // unreachable after the checks above; kept for safety
-    }
-    const Status st = detail::insert_reserved(s, reservation.value(), row);
-    if (!st.ok()) {
-      return st;
-    }
-    ++inserted;
+  while (inserted < n) {
+    const detail::WriteLock lock(impl_->rw);
+    detail::CollectionState& s = *impl_->state;
+    const auto slice_end = std::chrono::steady_clock::now() + detail::kWriteSliceTime;
+    do {
+      Result<detail::IdMap::Reservation> reservation = s.ids.reserve(ids[inserted], options.upsert);
+      if (!reservation.ok()) {
+        return reservation.status();  // unreachable after the checks above; kept for safety
+      }
+      const Status st =
+          detail::insert_reserved(s, reservation.value(), data.subspan(inserted * dim, dim));
+      if (!st.ok()) {
+        return st;
+      }
+      ++inserted;
+    } while (inserted < n && std::chrono::steady_clock::now() < slice_end);
   }
   return inserted;
 }
 
 Status Collection::remove(ExternalId id) {
+  const std::lock_guard<std::mutex> writer(impl_->writers);
+  const detail::WriteLock lock(impl_->rw);
   detail::CollectionState& s = *impl_->state;
   Result<InternalId> internal = s.ids.erase(id);
   if (!internal.ok()) {
@@ -325,7 +382,60 @@ Status Collection::remove(ExternalId id) {
   return {};
 }
 
+Result<CompactStats> Collection::compact() {
+  const std::lock_guard<std::mutex> writer(impl_->writers);
+  std::unique_ptr<detail::CollectionState> rebuilt;
+  CompactStats stats;
+  {
+    // Searches continue while the new state is built; writers wait on `writers`.
+    const detail::ReadLock lock(impl_->rw);
+    const detail::CollectionState& old = *impl_->state;
+    stats.rows_before = old.vectors.size();
+    stats.removed_rows = old.deleted.count();
+    stats.rows_after = stats.rows_before;
+    if (stats.removed_rows == 0) {
+      return stats;
+    }
+    Result<detail::VectorStore> store = detail::VectorStore::create({.dim = old.config.dim});
+    if (!store.ok()) {
+      return store.status();
+    }
+    rebuilt = std::make_unique<detail::CollectionState>(old.config, std::move(store).value(),
+                                                        *old.kernels);
+    rebuilt->creator = old.creator;
+    rebuilt->created_unix_ms = old.created_unix_ms;
+    VF_RETURN_IF_ERROR(detail::attach_backend(*rebuilt));
+    const std::uint64_t live = old.ids.size();
+    VF_RETURN_IF_ERROR(rebuilt->vectors.reserve(live));
+    rebuilt->ids.reserve_capacity(live);
+    rebuilt->deleted.ensure_size(live);
+    // Live rows are re-inserted in their original order; stored rows are already normalised.
+    for (std::uint64_t r = 0; r < old.vectors.size(); ++r) {
+      const auto internal = static_cast<InternalId>(r);
+      if (old.deleted.test(internal)) {
+        continue;
+      }
+      Result<detail::IdMap::Reservation> reservation =
+          rebuilt->ids.reserve(old.ids.label(internal), false);
+      if (!reservation.ok()) {
+        return reservation.status();
+      }
+      VF_RETURN_IF_ERROR(
+          detail::insert_reserved(*rebuilt, reservation.value(), old.vectors.row(internal)));
+    }
+    stats.rows_after = rebuilt->vectors.size();
+  }
+  std::shared_ptr<detail::CollectionState> retired;
+  {
+    const detail::WriteLock lock(impl_->rw);
+    retired = std::exchange(impl_->state, std::move(rebuilt));
+  }
+  // The old state (and any file mapping it holds) is released here, outside the lock.
+  return stats;
+}
+
 Result<std::vector<float>> Collection::get(ExternalId id) const {
+  const detail::ReadLock lock(impl_->rw);
   const detail::CollectionState& s = *impl_->state;
   const std::optional<InternalId> internal = s.ids.find(id);
   if (!internal) {
@@ -335,14 +445,16 @@ Result<std::vector<float>> Collection::get(ExternalId id) const {
   return std::vector<float>(row.begin(), row.end());
 }
 
-bool Collection::contains(ExternalId id) const noexcept {
+bool Collection::contains(ExternalId id) const {
+  const detail::ReadLock lock(impl_->rw);
   return impl_->state->ids.contains(id);
 }
 
 Result<std::vector<Neighbor>> Collection::search(std::span<const float> query,
                                                  const SearchParams& params) const {
-  const detail::CollectionState& s = *impl_->state;
   VF_RETURN_IF_ERROR(params.validate());
+  const detail::ReadLock lock(impl_->rw);
+  const detail::CollectionState& s = *impl_->state;
   Result<detail::QueryView> view = detail::prepare_query(s, query);
   if (!view.ok()) {
     return view.status();
@@ -357,12 +469,13 @@ Result<std::vector<Neighbor>> Collection::search(std::span<const float> query,
 Result<std::size_t> Collection::search_into(std::span<const float> query,
                                             const SearchParams& params,
                                             std::span<Neighbor> out) const {
-  const detail::CollectionState& s = *impl_->state;
   VF_RETURN_IF_ERROR(params.validate());
   if (out.size() < params.k) {
     return Status::invalid_argument("output span holds " + std::to_string(out.size()) +
                                     " results but k = " + std::to_string(params.k));
   }
+  const detail::ReadLock lock(impl_->rw);
+  const detail::CollectionState& s = *impl_->state;
   Result<detail::QueryView> view = detail::prepare_query(s, query);
   if (!view.ok()) {
     return view.status();
@@ -372,17 +485,18 @@ Result<std::size_t> Collection::search_into(std::span<const float> query,
 
 Status Collection::search_batch(std::span<const float> queries, std::size_t nq,
                                 const SearchParams& params, std::span<ExternalId> out_ids,
-                                std::span<float> out_distances,
-                                std::span<std::uint32_t> counts) const {
-  const detail::CollectionState& s = *impl_->state;
+                                std::span<float> out_distances, std::span<std::uint32_t> counts,
+                                ThreadPool* pool) const {
   VF_RETURN_IF_ERROR(params.validate());
-  const std::uint32_t dim = s.config.dim;
+  const std::uint32_t dim = impl_->config.dim;
   VF_RETURN_IF_ERROR(detail::validate_batch(queries, nq, dim));
   const auto slots = detail::checked_mul(nq, std::size_t{params.k});
   if (!slots || out_ids.size() < *slots || out_distances.size() < *slots || counts.size() < nq) {
     return Status::invalid_argument("output spans are too small for " + std::to_string(nq) +
                                     " queries with k = " + std::to_string(params.k));
   }
+  const detail::ReadLock lock(impl_->rw);
+  const detail::CollectionState& s = *impl_->state;
   std::vector<detail::QueryView> views;
   views.reserve(nq);
   for (std::size_t i = 0; i < nq; ++i) {
@@ -395,25 +509,37 @@ Status Collection::search_batch(std::span<const float> queries, std::size_t nq,
 
   const detail::SearchKnobs knobs = detail::knobs_for(params, s.vectors.size());
   const std::size_t k = params.k;
-  std::vector<Neighbor> scratch(knobs.k);
-  for (std::size_t i = 0; i < nq; ++i) {
-    const std::size_t count = detail::run_query(s, views[i], knobs, scratch);
-    const std::size_t base = i * k;
-    for (std::size_t j = 0; j < k; ++j) {
-      const bool real = j < count;
-      out_ids[base + j] = real ? scratch[j].id : kInvalidExternalId;
-      out_distances[base + j] = real ? scratch[j].distance : std::numeric_limits<float>::infinity();
+  // Pool workers read the state under this thread's shared lock, which parallel_for keeps held
+  // until every chunk has finished.
+  auto run_range = [&](std::size_t lo, std::size_t hi) {
+    std::vector<Neighbor> scratch(knobs.k);
+    for (std::size_t i = lo; i < hi; ++i) {
+      const std::size_t count = detail::run_query(s, views[i], knobs, scratch);
+      const std::size_t base = i * k;
+      for (std::size_t j = 0; j < k; ++j) {
+        const bool real = j < count;
+        out_ids[base + j] = real ? scratch[j].id : kInvalidExternalId;
+        out_distances[base + j] =
+            real ? scratch[j].distance : std::numeric_limits<float>::infinity();
+      }
+      counts[i] = static_cast<std::uint32_t>(count);
     }
-    counts[i] = static_cast<std::uint32_t>(count);
+  };
+  if (pool != nullptr) {
+    pool->parallel_for(0, nq, detail::kSearchGrain, run_range);
+  } else {
+    run_range(0, nq);
   }
   return {};
 }
 
-std::size_t Collection::size() const noexcept {
+std::size_t Collection::size() const {
+  const detail::ReadLock lock(impl_->rw);
   return impl_->state->ids.size();
 }
 
 CollectionStats Collection::stats() const {
+  const detail::ReadLock lock(impl_->rw);
   const detail::CollectionState& s = *impl_->state;
   CollectionStats st;
   st.live_count = s.ids.size();
@@ -434,7 +560,7 @@ CollectionStats Collection::stats() const {
 }
 
 const CollectionConfig& Collection::config() const noexcept {
-  return impl_->state->config;
+  return impl_->config;
 }
 
 }  // namespace vf

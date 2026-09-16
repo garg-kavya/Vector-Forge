@@ -79,8 +79,10 @@ Status run_build(const BuildOptions& options, std::ostream& log) {
   if (!collection.ok()) {
     return collection.status();
   }
+  const std::unique_ptr<ThreadPool> pool = make_pool(options.threads);
   const detail::Stopwatch build_timer;
-  const Result<std::size_t> added = collection.value()->add_batch(ids.value(), data.data);
+  const Result<std::size_t> added =
+      collection.value()->add_batch(ids.value(), data.data, {}, pool.get());
   if (!added.ok()) {
     return {added.status().code(), options.input.string() + ": " + added.status().message()};
   }

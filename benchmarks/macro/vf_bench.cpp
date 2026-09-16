@@ -1,4 +1,4 @@
-// vf_bench (minimal, Phases 3-5): build an HNSW index over a seeded synthetic dataset (or load one
+// vf_bench (minimal, Phases 3-6): build an HNSW index over a seeded synthetic dataset (or load one
 // with --index-file), sweep ef_search and report recall@k, latency, QPS and distance computations
 // per query against exact (Flat) ground truth, plus Flat latency on the same queries. One
 // configuration per process (docs/DESIGN.md §16). Single thread. --simd selects the kernel tier
@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -22,10 +23,12 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <vectorforge/collection.hpp>
 #include <vectorforge/simd.hpp>
+#include <vectorforge/thread_pool.hpp>
 #include <vectorforge/version.hpp>
 
 #include "collection/collection_factory.hpp"
@@ -75,6 +78,10 @@ struct Options {
   bool prefault = false;
   std::string simd;             // "" (leave VF_SIMD alone) | auto | scalar | avx2
   std::string prefetch = "on";  // sweep: on | off
+  // threads / ingest scenarios
+  std::vector<std::uint32_t> threads{1, 2, 4, 8, 16};
+  std::uint32_t repeat = 5;
+  std::uint32_t batch = 1000;
 };
 
 void set_simd_request(const std::string& request) {
@@ -259,6 +266,160 @@ std::string json_escape(const std::string& s) {
   return out;
 }
 
+// threads: batch-search throughput of a loaded index as a function of the thread count
+// (docs/DESIGN.md §16.3 "threads"). Each thread count runs the whole query set `repeat` times.
+int run_threads(const Options& o) {
+  if (o.index_file.empty()) {
+    std::cerr << "--index-file is required\n";
+    return 2;
+  }
+  vf::Result<std::unique_ptr<vf::Collection>> loaded =
+      vf::Collection::load(o.index_file, {.use_mmap = false});
+  if (!loaded.ok()) {
+    std::cerr << loaded.status().to_string() << "\n";
+    return 1;
+  }
+  const vf::Collection& c = *loaded.value();
+  Options qo = o;
+  qo.dim = c.config().dim;
+  const std::vector<float> queries = generate(qo, o.queries, o.seed + 1);
+  const auto nq = static_cast<std::size_t>(o.queries);
+  vf::SearchParams params;
+  params.k = o.k;
+  params.ef_search = o.ef_search.front();
+  std::vector<ExternalId> ids(nq * o.k);
+  std::vector<float> distances(nq * o.k);
+  std::vector<std::uint32_t> counts(nq);
+  std::ostringstream json;
+  json << "{\n  \"schema\": 1, \"suite\": \"threads\",\n"
+       << environment_json() << "  \"params\": {\"index\": \"" << vf::to_string(c.config().index)
+       << "\", \"rows\": " << c.size() << ", \"dim\": " << c.config().dim << ", \"metric\": \""
+       << vf::to_string(c.config().metric) << "\", \"k\": " << o.k
+       << ", \"ef_search\": " << o.ef_search.front() << ", \"queries\": " << nq
+       << ", \"repeat\": " << o.repeat
+       << ", \"hardware_threads\": " << std::thread::hardware_concurrency() << "},\n"
+       << "  \"results\": [\n";
+  double single_qps = 0.0;
+  for (std::size_t t = 0; t < o.threads.size(); ++t) {
+    const std::uint32_t threads = o.threads[t];
+    const std::unique_ptr<vf::ThreadPool> pool =
+        threads > 1 ? std::make_unique<vf::ThreadPool>(threads - 1) : nullptr;
+    // Warm-up: sizes the search contexts for this thread count.
+    if (!c.search_batch(queries, nq, params, ids, distances, counts, pool.get()).ok()) {
+      std::cerr << "search_batch failed\n";
+      return 1;
+    }
+    std::vector<double> rounds;
+    for (std::uint32_t r = 0; r < o.repeat; ++r) {
+      const d::Stopwatch sw;
+      static_cast<void>(c.search_batch(queries, nq, params, ids, distances, counts, pool.get()));
+      rounds.push_back(static_cast<double>(nq) / sw.elapsed_seconds());
+    }
+    std::sort(rounds.begin(), rounds.end());
+    const double qps = rounds[rounds.size() / 2];
+    if (threads == 1) {
+      single_qps = qps;
+    }
+    json << "    {\"threads\": " << threads << ", \"qps_median\": " << qps
+         << ", \"qps_min\": " << rounds.front() << ", \"qps_max\": " << rounds.back();
+    if (single_qps > 0.0) {
+      json << ", \"speedup\": " << qps / single_qps;
+    }
+    json << "}" << (t + 1 < o.threads.size() ? "," : "") << "\n";
+    std::cerr << "threads=" << threads << " qps=" << qps << "\n";
+  }
+  json << "  ]\n}\n";
+  emit(o, json.str());
+  return 0;
+}
+
+// ingest: search latency of one reader thread while a writer adds vectors with add_batch
+// (docs/DESIGN.md §16.3 "ingest"), compared with the same reader on the idle collection.
+int run_ingest(const Options& o, vf::Metric metric) {
+  vf::CollectionConfig cfg;
+  cfg.dim = o.dim;
+  cfg.metric = metric;
+  cfg.index = o.index_type == "flat" ? vf::IndexType::Flat : vf::IndexType::Hnsw;
+  cfg.hnsw.M = o.m;
+  cfg.hnsw.ef_construction = o.ef_construction;
+  const std::unique_ptr<vf::Collection> c = vf::Collection::create(cfg).value();
+  const std::vector<float> base = generate(o, o.n, o.seed);
+  const std::vector<float> queries = generate(o, o.queries, o.seed + 1);
+  const auto half = static_cast<std::size_t>(o.n / 2);
+  std::vector<ExternalId> ids(static_cast<std::size_t>(o.n));
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    ids[i] = i;
+  }
+  std::cerr << "preloading " << half << " vectors\n";
+  if (!c->add_batch(std::span<const ExternalId>(ids).first(half),
+                    std::span<const float>(base).first(half * o.dim))
+           .ok()) {
+    std::cerr << "preload failed\n";
+    return 1;
+  }
+  vf::SearchParams params;
+  params.k = o.k;
+  params.ef_search = o.ef_search.front();
+  const auto nq = static_cast<std::size_t>(o.queries);
+
+  auto measure = [&](const std::atomic<bool>& keep_going, std::size_t min_queries) {
+    std::vector<double> latencies;
+    std::vector<vf::Neighbor> out(o.k);
+    for (std::size_t q = 0; keep_going.load() || q < min_queries; ++q) {
+      const d::Stopwatch sw;
+      static_cast<void>(c->search_into(
+          std::span<const float>(queries).subspan((q % nq) * o.dim, o.dim), params, out));
+      latencies.push_back(sw.elapsed_seconds());
+    }
+    std::sort(latencies.begin(), latencies.end());
+    return latencies;
+  };
+
+  const std::atomic<bool> idle{false};
+  const std::vector<double> quiet = measure(idle, nq);
+
+  std::atomic<bool> writing{true};
+  double ingest_seconds = 0.0;
+  std::thread writer([&] {
+    const d::Stopwatch sw;
+    for (std::size_t first = half; first < ids.size(); first += o.batch) {
+      const std::size_t count = std::min<std::size_t>(o.batch, ids.size() - first);
+      static_cast<void>(
+          c->add_batch(std::span<const ExternalId>(ids).subspan(first, count),
+                       std::span<const float>(base).subspan(first * o.dim, count * o.dim)));
+    }
+    ingest_seconds = sw.elapsed_seconds();
+    writing = false;
+  });
+  const std::vector<double> busy = measure(writing, 1);
+  writer.join();
+
+  auto summary = [](const std::vector<double>& s) {
+    std::ostringstream out;
+    out << "{\"queries\": " << s.size() << ", \"p50_us\": " << percentile(s, 50) * 1e6
+        << ", \"p99_us\": " << percentile(s, 99) * 1e6
+        << ", \"p999_us\": " << percentile(s, 99.9) * 1e6 << ", \"max_us\": " << s.back() * 1e6
+        << "}";
+    return out.str();
+  };
+  std::ostringstream json;
+  json << "{\n  \"schema\": 1, \"suite\": \"ingest\",\n"
+       << environment_json() << "  \"dataset\": {\"distribution\": \"" << o.distribution
+       << "\", \"n\": " << o.n << ", \"dim\": " << o.dim << ", \"metric\": \""
+       << vf::to_string(metric) << "\", \"seed\": " << o.seed << "},\n"
+       << "  \"params\": {\"index\": \"" << o.index_type << "\", \"M\": " << o.m
+       << ", \"ef_construction\": " << o.ef_construction << ", \"k\": " << o.k
+       << ", \"ef_search\": " << o.ef_search.front() << ", \"preloaded\": " << half
+       << ", \"ingested\": " << (ids.size() - half) << ", \"batch\": " << o.batch
+       << ", \"reader_threads\": 1},\n"
+       << "  \"result\": {\"ingest_seconds\": " << ingest_seconds
+       << ", \"ingest_vectors_per_s\": " << static_cast<double>(ids.size() - half) / ingest_seconds
+       << ", \"search_idle\": " << summary(quiet) << ", \"search_during_ingest\": " << summary(busy)
+       << "}\n}\n";
+  emit(o, json.str());
+  return 0;
+}
+
 int run(int argc, char** argv) {
   Options o;
   CLI::App app{"vf_bench: HNSW build + ef_search sweep against exact ground truth"};
@@ -280,10 +441,15 @@ int run(int argc, char** argv) {
   app.add_flag("--no-repair", o.no_repair, "disable new-node orphan repair");
   app.add_flag("--skip-flat-timing", o.skip_flat_timing, "do not time Flat queries");
   app.add_option("--out", o.out, "JSON output file (default: stdout only)");
-  app.add_option("--scenario", o.scenario, "sweep | save | load")
-      ->check(CLI::IsMember({"sweep", "save", "load"}));
+  app.add_option("--scenario", o.scenario, "sweep | save | load | threads | ingest")
+      ->check(CLI::IsMember({"sweep", "save", "load", "threads", "ingest"}));
+  app.add_option("--threads", o.threads, "threads: thread counts")->delimiter(',');
+  app.add_option("--repeat", o.repeat, "threads: timed passes per thread count")
+      ->check(CLI::Range(1U, 1000U));
+  app.add_option("--batch", o.batch, "ingest: vectors per add_batch call")
+      ->check(CLI::Range(1U, 10000000U));
   app.add_option("--index-file", o.index_file, "save/load: index file path");
-  app.add_option("--index", o.index_type, "save: flat | hnsw")
+  app.add_option("--index", o.index_type, "save/ingest: flat | hnsw")
       ->check(CLI::IsMember({"flat", "hnsw"}));
   app.add_option("--load-mode", o.load_mode, "load: heap | mmap")
       ->check(CLI::IsMember({"heap", "mmap"}));
@@ -315,6 +481,12 @@ int run(int argc, char** argv) {
   }
   if (o.scenario == "load") {
     return run_load(o);
+  }
+  if (o.scenario == "threads") {
+    return run_threads(o);
+  }
+  if (o.scenario == "ingest") {
+    return run_ingest(o, metric.value());
   }
   vf::HnswParams params;
   params.M = o.m;

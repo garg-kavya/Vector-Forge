@@ -61,12 +61,13 @@ Status run_ground_truth(const GroundTruthOptions& options, std::ostream& log) {
   }
   Collection& col = *collection.value();
 
+  const std::unique_ptr<ThreadPool> pool = make_pool(options.threads);
   const detail::Stopwatch build_timer;
   std::vector<ExternalId> ids(static_cast<std::size_t>(b.rows));
   for (std::size_t i = 0; i < ids.size(); ++i) {
     ids[i] = i;
   }
-  const Result<std::size_t> added = col.add_batch(ids, b.data);
+  const Result<std::size_t> added = col.add_batch(ids, b.data, {}, pool.get());
   if (!added.ok()) {
     return {added.status().code(), "base: " + added.status().message()};
   }
@@ -83,7 +84,7 @@ Status run_ground_truth(const GroundTruthOptions& options, std::ostream& log) {
   SearchParams params;
   params.k = options.k;
   VF_RETURN_IF_ERROR(col.search_batch(q.data, static_cast<std::size_t>(q.rows), params, out_ids,
-                                      out_distances, counts));
+                                      out_distances, counts, pool.get()));
   const double search_seconds = search_timer.elapsed_seconds();
 
   std::vector<std::int64_t> ids_i64(out_ids.size());

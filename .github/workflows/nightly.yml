@@ -1,0 +1,47 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stress-tsan:
+    name: Stress tests x100 (Clang 18 TSan)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-18
+      - name: Limit mmap randomisation for TSan
+        run: sudo sysctl vm.mmap_rnd_bits=28
+      - name: Build
+        run: |
+          cmake --preset linux-clang-tsan -DCMAKE_CXX_COMPILER=clang++-18
+          cmake --build --preset linux-clang-tsan
+      - name: Concurrency tests
+        run: ctest --preset linux-clang-tsan -L concurrency
+      - name: Stress tests, 100 repetitions
+        run: ctest --preset linux-clang-tsan -L stress --repeat until-fail:100
+
+  stress-release:
+    name: Stress tests x100 (GCC 14 Release)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++-14
+      - name: Build
+        run: |
+          cmake --preset linux-gcc-release -DCMAKE_CXX_COMPILER=g++-14
+          cmake --build --preset linux-gcc-release
+      - name: Stress tests, 100 repetitions
+        run: ctest --preset linux-gcc-release -L stress --repeat until-fail:100
