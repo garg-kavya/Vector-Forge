@@ -3,7 +3,8 @@
 // Deletion markers for rows (docs/DESIGN.md §9.9). Rows are never physically removed while a
 // collection state is alive; searches skip tombstoned rows and compaction rebuilds without them.
 //
-// Thread safety: thread-compatible (Phase 2). Phase 6b switches words to std::atomic.
+// Thread safety: thread-compatible. Collections change it only under their exclusive lock, also
+// in Level B (docs/concurrency.md), so plain words suffice.
 
 #include <bit>
 #include <cstddef>
@@ -39,6 +40,19 @@ class TombstoneSet {
     }
     word |= mask;
     ++count_;
+    return true;
+  }
+
+  // Unmarks `id`; returns true if it was marked. Precondition: id within ensure_size().
+  bool clear(InternalId id) noexcept {
+    VF_ASSERT(id / 64U < words_.size(), "TombstoneSet::clear out of range");
+    std::uint64_t& word = words_[id / 64U];
+    const std::uint64_t mask = std::uint64_t{1} << (id % 64U);
+    if ((word & mask) == 0U) {
+      return false;
+    }
+    word &= ~mask;
+    --count_;
     return true;
   }
 

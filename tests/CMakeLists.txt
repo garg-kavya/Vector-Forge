@@ -80,6 +80,7 @@ find_package(Threads REQUIRED)
 add_executable(vf_concurrency_tests
   concurrency/test_concurrent_reads.cpp
   concurrency/test_concurrent_search.cpp
+  concurrency/test_parallel_build.cpp
   concurrency/test_thread_pool.cpp
 )
 target_link_libraries(vf_concurrency_tests
@@ -93,6 +94,7 @@ gtest_discover_tests(vf_concurrency_tests
 
 # Stress tests: part of every run; the nightly workflow repeats them (ctest -L stress --repeat).
 add_executable(vf_stress_tests
+  concurrency/test_concurrent_insert_search.cpp
   concurrency/test_rw_stress.cpp
 )
 target_link_libraries(vf_stress_tests

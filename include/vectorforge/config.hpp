@@ -43,6 +43,9 @@ struct CollectionConfig {
   bool normalize = false;
   IndexType index = IndexType::Hnsw;
   HnswParams hnsw{};
+  // Insert/search synchronisation for HNSW (ignored by Flat). A runtime setting: not stored in
+  // index files (LoadOptions::concurrency applies on load).
+  Concurrency concurrency = Concurrency::Concurrent;
 
   [[nodiscard]] Status validate() const;
 
@@ -82,6 +85,8 @@ struct LoadOptions {
   Verify verify = Verify::Auto;
   // Ask the OS to page the mapped vectors in up front (predictable first-query latency).
   bool prefault = false;
+  // CollectionConfig::concurrency of the loaded collection.
+  Concurrency concurrency = Concurrency::Concurrent;
 };
 
 }  // namespace vf

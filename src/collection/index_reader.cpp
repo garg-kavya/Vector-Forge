@@ -396,6 +396,7 @@ Result<std::unique_ptr<CollectionState>> read_index(std::span<const std::byte> f
   config.metric = static_cast<Metric>(m.metric);
   config.normalize = m.normalize == 1;
   config.index = static_cast<IndexType>(m.index_type);
+  config.concurrency = options.concurrency;
   config.hnsw.M = m.m;
   config.hnsw.ef_construction = m.ef_construction;
   config.hnsw.ef_search = m.ef_search;

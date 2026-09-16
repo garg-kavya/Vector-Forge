@@ -95,13 +95,13 @@ Status HnswGraph::add_node(std::uint8_t level) {
   // Phase 1: everything that can fail, without changing observable state.
   reserve_one_more(levels_);
   reserve_one_more(upper_);
-  AlignedArray<std::uint32_t> new_l0;
+  AtomicArray<std::uint32_t> new_l0;
   if ((id & chunk_mask_) == 0) {
     reserve_one_more(l0_chunks_);
-    new_l0 = make_aligned_array_zeroed<std::uint32_t>(nodes_per_chunk_ * stride0_);
+    new_l0 = make_atomic_array<std::uint32_t>(nodes_per_chunk_ * stride0_);
   }
   const std::size_t block_words = static_cast<std::size_t>(level) * stride_upper_;
-  AlignedArray<std::uint32_t> new_arena;
+  AtomicArray<std::uint32_t> new_arena;
   bool opens_arena_chunk = false;
   if (level > 0 && arena_used_ + block_words > arena_chunk_words_) {
     const std::size_t max_chunks = std::size_t{1} << (32U - arena_shift_);
@@ -109,7 +109,7 @@ Status HnswGraph::add_node(std::uint8_t level) {
       return Status::resource_exhausted("hnsw graph: upper-level arena exhausted");
     }
     reserve_one_more(arena_chunks_);
-    new_arena = make_aligned_array_zeroed<std::uint32_t>(arena_chunk_words_);
+    new_arena = make_atomic_array<std::uint32_t>(arena_chunk_words_);
     opens_arena_chunk = true;
   }
 
@@ -131,32 +131,69 @@ Status HnswGraph::add_node(std::uint8_t level) {
   return {};
 }
 
-std::uint32_t* HnswGraph::list_ptr_mut(InternalId id, std::uint8_t level) noexcept {
-  VF_ASSERT(id < levels_.size() && level <= levels_[id], "HnswGraph: list out of range");
-  if (level == 0) {
-    return l0_chunks_[id >> chunk_shift_].get() + ((id & chunk_mask_) * stride0_);
+HnswGraph::HnswGraph(HnswGraph&& other) noexcept
+    : m_(other.m_),
+      m0_(other.m0_),
+      max_level_(other.max_level_),
+      stride0_(other.stride0_),
+      stride_upper_(other.stride_upper_),
+      nodes_per_chunk_(other.nodes_per_chunk_),
+      chunk_shift_(other.chunk_shift_),
+      chunk_mask_(other.chunk_mask_),
+      arena_chunk_words_(other.arena_chunk_words_),
+      arena_shift_(other.arena_shift_),
+      arena_mask_(other.arena_mask_),
+      arena_used_(other.arena_used_),
+      levels_(std::move(other.levels_)),
+      upper_(std::move(other.upper_)),
+      l0_chunks_(std::move(other.l0_chunks_)),
+      arena_chunks_(std::move(other.arena_chunks_)),
+      entry_(other.entry_.load()) {
+  other.entry_.store(pack(Entry{}));
+}
+
+HnswGraph& HnswGraph::operator=(HnswGraph&& other) noexcept {
+  if (this != &other) {
+    m_ = other.m_;
+    m0_ = other.m0_;
+    max_level_ = other.max_level_;
+    stride0_ = other.stride0_;
+    stride_upper_ = other.stride_upper_;
+    nodes_per_chunk_ = other.nodes_per_chunk_;
+    chunk_shift_ = other.chunk_shift_;
+    chunk_mask_ = other.chunk_mask_;
+    arena_chunk_words_ = other.arena_chunk_words_;
+    arena_shift_ = other.arena_shift_;
+    arena_mask_ = other.arena_mask_;
+    arena_used_ = other.arena_used_;
+    levels_ = std::move(other.levels_);
+    upper_ = std::move(other.upper_);
+    l0_chunks_ = std::move(other.l0_chunks_);
+    arena_chunks_ = std::move(other.arena_chunks_);
+    entry_.store(other.entry_.load());
+    other.entry_.store(pack(Entry{}));
   }
-  const std::uint32_t offset = upper_[id];
-  return arena_chunks_[offset >> arena_shift_].get() + (offset & arena_mask_) +
-         ((static_cast<std::size_t>(level) - 1) * stride_upper_);
+  return *this;
 }
 
 void HnswGraph::set_links(InternalId id, std::uint8_t level,
                           std::span<const InternalId> ids) noexcept {
   VF_ASSERT(ids.size() <= capacity(level), "HnswGraph::set_links: too many links");
-  std::uint32_t* list = list_ptr_mut(id, level);
-  std::copy(ids.begin(), ids.end(), list + 1);
-  list[0] = static_cast<std::uint32_t>(ids.size());
+  LinkWord* list = list_ptr(id, level);
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    list[1 + i].store(ids[i], std::memory_order_relaxed);
+  }
+  list[0].store(static_cast<std::uint32_t>(ids.size()), std::memory_order_relaxed);
 }
 
 bool HnswGraph::try_append_link(InternalId id, std::uint8_t level, InternalId neighbor) noexcept {
-  std::uint32_t* list = list_ptr_mut(id, level);
-  const std::uint32_t count = list[0];
+  LinkWord* list = list_ptr(id, level);
+  const std::uint32_t count = list[0].load(std::memory_order_relaxed);
   if (count >= capacity(level)) {
     return false;
   }
-  list[1 + count] = neighbor;
-  list[0] = count + 1;
+  list[1 + count].store(neighbor, std::memory_order_relaxed);
+  list[0].store(count + 1, std::memory_order_relaxed);
   return true;
 }
 
@@ -171,16 +208,17 @@ std::vector<std::uint8_t> HnswGraph::canonical_bytes() const {
   put_u32(out, m_);
   put_u32(out, max_level_);
   put_u64(out, node_count());
-  put_u32(out, entry_.id);
-  put_u32(out, entry_.level);
+  const Entry top = entry();
+  put_u32(out, top.id);
+  put_u32(out, top.level);
   for (std::size_t i = 0; i < levels_.size(); ++i) {
     const auto id = static_cast<InternalId>(i);
     out.push_back(levels_[i]);
     for (std::uint8_t level = 0; level <= levels_[i]; ++level) {
       const LinkView view = links(id, level);
       put_u32(out, view.size());
-      for (const InternalId neighbor : view.ids()) {
-        put_u32(out, neighbor);
+      for (std::uint32_t j = 0; j < view.size(); ++j) {
+        put_u32(out, view[j]);
       }
     }
   }

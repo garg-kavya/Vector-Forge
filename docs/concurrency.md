@@ -4,7 +4,9 @@ This page states what VectorForge guarantees when it is used from several thread
 guarantees are implemented, and what was measured. Design rationale: [DESIGN.md §11](DESIGN.md#11-concurrency-design).
 
 Source: `include/vectorforge/thread_pool.hpp`, `src/concurrency/thread_pool.cpp`,
-`src/collection/collection.cpp`, `src/search/context_pool.hpp`.
+`src/concurrency/fair_shared_mutex.hpp`, `src/concurrency/striped_mutex.hpp`,
+`src/collection/collection.cpp`, `src/index/hnsw/hnsw_graph.hpp`, `src/index/hnsw/hnsw_insert.cpp`,
+`src/search/context_pool.hpp`. Decision record: [ADR-0003](adr/0003-concurrent-hnsw-insert.md).
 
 ## Thread-safety contract
 
@@ -19,16 +21,29 @@ Observable semantics of a `Collection` shared between threads:
 
 - **Searches** (`search`, `search_into`, `search_batch`) and other reads (`get`, `contains`,
   `size`, `stats`, `save`) run in parallel with each other.
-- **Mutations** (`add`, `add_batch`, `remove`) are serialised with each other. While one runs, reads
-  wait; `add_batch` holds the collection for at most about 2 ms at a time, so searches interleave
-  with long ingestions and may observe a partially inserted batch. Other writers wait for the whole batch, so
-  the batch's up-front validation (for example "id already exists") stays valid.
+- **Mutations** (`add`, `add_batch`, `remove`) are serialised with each other. Other writers wait
+  for a whole batch, so the batch's up-front validation (for example "id already exists") stays
+  valid. Searches may observe a partially inserted batch.
+- **Concurrency mode** (`CollectionConfig::concurrency`, `LoadOptions::concurrency`; HNSW only):
+  - `Concurrent` (default, Level B): `add_batch` blocks reads only while it appends rows and
+    allocates graph nodes (a few rows per millisecond of section time, at most ~2 ms); rows are then
+    linked into the graph while searches run, on the given pool's threads. `add` and `remove`
+    behave as in `Coarse`.
+  - `Coarse` (Level A): `add_batch` holds the collection exclusively for about 2 ms at a time while
+    it inserts, so searches wait up to one section.
+  - `Flat` collections always behave as `Coarse`.
 - **Removal:** a search that runs concurrently with `remove(id)` may or may not return `id`; a
   search that starts after `remove(id)` has returned never returns it.
 - **`compact()`** blocks writers for its whole duration, lets searches continue while it rebuilds,
   and blocks them only for the final pointer swap. Searches before the swap use the old state,
   searches after it the new one.
-- **`save()`** takes a consistent snapshot: writers wait until the file is written.
+- **`save()`** takes a consistent snapshot: writers wait until the file is written, and a save
+  waits for the Level B grow-and-link section in progress (at most 64 rows per inserting thread),
+  so a snapshot never contains rows that are allocated but not yet linked.
+- **Failures during Level B linking** (only `std::bad_alloc` from the neighbour search can occur):
+  the affected rows are tombstoned and their ids restored to their previous state (removed, or the
+  old vector for an upsert), then `std::bad_alloc` propagates. Other rows of the batch stay
+  inserted. `stats().deleted_count` counts the tombstoned rows until `compact()`.
 - `config()` never blocks (the configuration is immutable).
 
 ## Level A: collection-level reader/writer lock
@@ -107,6 +122,67 @@ reader waits up to one 64-row HNSW insertion (~13 ms). Sections are therefore bo
 (`kWriteSliceTime = 2 ms`), which fixes the reader's worst case independently of dimension and index
 type, at the cost of more lock hand-offs for the writer.
 
+## Level B: concurrent HNSW insertion
+
+`add_batch` on an HNSW collection in `Concurrent` mode alternates two sections:
+
+| Section | Locks | Work |
+|---|---|---|
+| grow | `writers`, `link`, `rw` exclusive | size insert scratch; for each row: reserve id, append vector, allocate graph node (level from `(seed, id)`, empty lists), commit id, tombstone the replaced row of an upsert |
+| link | `writers`, `link`, `rw` shared (`link` held since the grow section) | `HnswBackend::link(row)` for the grown rows, in parallel on the pool |
+
+A section holds at most `64 × threads` rows, and a grow section stops after 2 ms. Everything that
+can fail (allocation, id space) happens in the grow section, row by row with the strong guarantee
+of Level A; a row that fails there leaves no trace, and the rows grown before it are linked before
+the error is returned.
+
+**Shared graph state and its protection** (DESIGN §11.4, as built):
+
+| State | Written by | Read by | Protection |
+|---|---|---|---|
+| vectors, labels, id map, tombstones, node levels, list addresses (chunk directories) | grow section, `remove`, compaction swap | everyone | only changed under `rw` exclusive, so no reader or linker runs meanwhile |
+| link list `(node, level)`: count + id slots | `link` (own lists before publication; back-links, shrinking, orphan repair after) | searches, other links, saves | slots are `std::atomic<uint32_t>`; writers hold `StripedMutex::for_key(node)` (4 096 stripes); readers load without locks |
+| entry point `(id, level)` | a `link` whose node is above the current top level | searches, links | one `std::atomic<uint64_t>`; writers hold `top_mutex_` |
+| insert scratch (visited set, candidate lists) | one `link` at a time per object | — | `InsertScratchPool`, sized in the grow section for the section's rows and thread count |
+| search contexts | — | searches | `ContextPool` (mutex), sized per lease from `node_count()`, which is stable under `rw` shared |
+| build statistics | `link` | `stats()`, benchmarks | `std::atomic<uint64_t>` counters |
+
+**Why it is race-free.**
+
+1. Every concurrently written scalar on the read path — list counts, list slots, the entry point —
+   is an atomic. Everything else a reader touches changes only under `rw` exclusive.
+2. *Publication order.* A node's vector, label and level are written in the grow section; its own
+   lists are written by `link` before the first back-link store makes its id visible. A reader
+   obtains an id only by loading an atomic that observed that store, so every id it sees names a
+   fully initialised node. Levels never change, and an id is stored in a level-`l` list only if its
+   level is at least `l`.
+3. *Torn lists are harmless.* A list is rewritten slot by slot, then the count. A concurrent reader
+   may see old and new ids mixed, a duplicate, or miss one; the visited set filters duplicates and a
+   miss only affects that query's recall. Stale slots beyond the count still name valid nodes.
+4. *No reclamation.* Nodes, chunks and arena blocks are never freed while a `CollectionState`
+   lives; compaction builds a new state and swaps it under `rw` exclusive.
+5. *No deadlock.* A linker holds at most one stripe at a time (lock, rewrite one list, unlock).
+   `top_mutex_` is taken before any stripe and never while holding one. Collection-level locks are
+   always taken in the order `writers`, `link`, `rw`, and the stripe and top locks only inside a
+   link section.
+6. *No lost back-links.* Reading a list for shrinking and writing the new list happen under the
+   same stripe, so updates of one node's list are serialised.
+7. *Entry point.* Only an insertion whose level exceeds the entry level it first observed takes
+   `top_mutex_`; it re-reads the entry point under the lock, so it links on every level it shares
+   with the graph before it publishes itself as the new entry. Two such insertions cannot both link
+   below a level neither has joined. The first node of an empty graph becomes the entry point
+   under the same lock.
+8. *Visited sets.* Every id a linker can observe is below `node_count()` at the start of the link
+   section, and scratch was sized for that count in the grow section.
+
+The argument is checked by ThreadSanitizer on the concurrency and stress tests (CI and nightly),
+by the graph validator after parallel builds and on snapshots saved during ingestion, and by the
+Coarse/Concurrent equality test below.
+
+**What Level B does not promise.** A parallel build is not bit-identical to a serial one (a serial
+Concurrent-mode build is: it equals the Coarse build byte for byte). Searches concurrent with a link
+section may miss the newest rows. `add()` still runs exclusively.
+
 ## Thread pool
 
 - Fixed number of `std::jthread` workers, one mutex-protected deque of type-erased move-only tasks
@@ -132,6 +208,9 @@ type, at the cost of more lock hand-offs for the writer.
 | `tests/concurrency/test_concurrent_reads.cpp` | concurrent const calls return exactly the single-threaded results |
 | `tests/concurrency/test_concurrent_search.cpp` | 4 readers (search, search_into, parallel search_batch) against 2 writers (add, parallel add_batch, remove), Flat and HNSW: results sorted, no duplicates, only known ids, no id removed before the query started; final counts; searches during `compact()` |
 | `tests/concurrency/test_rw_stress.cpp` (label `stress`) | writer, compactor, saver and 3 readers at once; the final collection equals a model of the writer's operations; the last snapshot loads |
+| `tests/concurrency/test_parallel_build.cpp` | serial Concurrent build == Coarse build (canonical graph bytes, distance counts); parallel builds with 1–8 threads pass the validator, reach every node and match serial recall within 0.02; ids, vectors and upserts after parallel batches; races for the entry point of an empty graph |
+| `tests/concurrency/test_concurrent_insert_search.cpp` (label `stress`) | 3 readers, a remover and a saver during parallel `add_batch`: result invariants, deletion linearisation, ≥ 95% exact-match hits for completed batches, snapshots load with full verification and pass the validator |
+| `tests/alloc/test_exception_safety.cpp` | allocation failure injection for Flat, HNSW Coarse and HNSW Concurrent |
 | `tests/unit/test_compact.cpp` | compaction keeps ids and bit-identical vectors, drops tombstones, keeps HNSW invariants, releases a file mapping; parallel batch results equal serial ones |
 
 All of them run under ThreadSanitizer in CI (`linux-clang-tsan`). The nightly workflow
@@ -155,3 +234,18 @@ Gaussian-mixture vectors, k = 10. Full tables, protocol and interpretation:
   to 2.27 ms (max 3.67 ms) while 3 806 vectors/s are inserted. Flat 10⁶: 12.4 ms → 20.9 ms median
   at 123 658 vectors/s. Level A trades search latency during ingestion for simplicity; Level B
   (Phase 6b) is the fix.
+
+Level B ([results](../benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6b/README.md)):
+
+| HNSW build, 100 000 rows | 1 (Coarse) | 2 | 4 | 8 | 16 threads |
+|---|---|---|---|---|---|
+| d = 128 build time | 18.3 s | 9.0 s | 5.1 s | 3.0 s | 2.6 s |
+| d = 768 build time | 40.4 s | — | 14.6 s | 11.6 s | 12.2 s |
+
+Recall@10 of every parallel graph is within 0.0002 of the serial graph's.
+
+| Ingest (HNSW 100K, d = 128) | Ingest rate | Reader p50 | p99.9 | max |
+|---|---|---|---|---|
+| Coarse | 3 842 vec/s | 2.27 ms | 2.85 ms | 3.92 ms |
+| Concurrent, 1 writer thread | 4 567 vec/s | 0.084 ms | 0.33 ms | 2.39 ms |
+| Concurrent, 4 writer threads | 15 293 vec/s | 0.098 ms | 0.40 ms | 2.77 ms |

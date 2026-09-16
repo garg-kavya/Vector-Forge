@@ -28,6 +28,7 @@ struct ReadOptions {
   // Non-null: `file` stays valid while `owner` lives, and vectors are served from it in place.
   // Null: vectors are copied to heap chunks.
   std::shared_ptr<const void> owner;
+  Concurrency concurrency = Concurrency::Concurrent;  // runtime setting of the loaded collection
 };
 
 // Validates `file` completely (docs/storage-format.md, "Validation") and builds a state.

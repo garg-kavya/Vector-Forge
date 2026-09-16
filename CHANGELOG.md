@@ -84,6 +84,18 @@ All notable changes to this project are documented here. The format follows
   `ingest`. Nightly workflow repeating the stress tests 100 times under TSan and in release.
   `docs/concurrency.md`.
 
+- Phase 6b: concurrent HNSW insertion (Level B), the new default
+  (`CollectionConfig::concurrency` / `LoadOptions::concurrency`: `Concurrent` or `Coarse`).
+  `add_batch` appends rows and allocates graph nodes in short exclusive sections and links them
+  while searches run, in parallel on an optional pool. Atomic link lists read without locks,
+  striped writer mutexes, an atomic entry point guarded for top-level insertions, per-insertion
+  scratch pools, atomic build statistics; saves wait for the link section in progress. A row whose
+  linking fails with `std::bad_alloc` is tombstoned and its id restored. `vf::to_string` /
+  `vf::parse_concurrency`. Tests: serial Concurrent build equals the Coarse build, parallel builds
+  (validator, reachability, recall), upserts, entry-point races, searches/removals/saves during
+  parallel ingestion (stress label), allocation failure injection in both modes. `vf_bench`
+  `build` scenario and `--concurrency` / `--writer-threads` for `ingest`. ADR-0003.
+
 - Fault-injection tests (`test_exception_safety`): every allocation of every insert fails in turn;
   failed inserts must leave collections unchanged and fully searchable. Concurrent-read test
   (`vf_concurrency_tests`) for the const-member thread-safety contract, clean under TSan.

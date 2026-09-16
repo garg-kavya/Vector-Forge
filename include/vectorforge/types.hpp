@@ -25,6 +25,14 @@ enum class IndexType : std::uint8_t {
   Hnsw = 1,
 };
 
+// How an HNSW collection synchronises inserts with searches (docs/concurrency.md).
+enum class Concurrency : std::uint8_t {
+  // Level A: add_batch() holds the collection exclusively while it inserts (in 2 ms sections).
+  Coarse = 0,
+  // Level B: add_batch() links rows while searches continue, in parallel when given a pool.
+  Concurrent = 1,
+};
+
 // User-facing vector identifier.
 using ExternalId = std::uint64_t;
 
@@ -64,9 +72,14 @@ struct Neighbor {
 // "flat", "hnsw".
 [[nodiscard]] std::string_view to_string(IndexType type) noexcept;
 
+// "coarse", "concurrent".
+[[nodiscard]] std::string_view to_string(Concurrency mode) noexcept;
+
 // Accepts "l2", "ip", "inner_product", "cosine" (case-sensitive).
 [[nodiscard]] Result<Metric> parse_metric(std::string_view text);
 // Accepts "flat", "hnsw" (case-sensitive).
 [[nodiscard]] Result<IndexType> parse_index_type(std::string_view text);
+// Accepts "coarse", "concurrent" (case-sensitive).
+[[nodiscard]] Result<Concurrency> parse_concurrency(std::string_view text);
 
 }  // namespace vf

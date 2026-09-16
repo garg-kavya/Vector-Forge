@@ -58,6 +58,10 @@ Status CollectionConfig::validate() const {
     return Status::invalid_argument("index type has invalid value " +
                                     std::to_string(static_cast<int>(index)));
   }
+  if (concurrency != Concurrency::Coarse && concurrency != Concurrency::Concurrent) {
+    return Status::invalid_argument("concurrency has invalid value " +
+                                    std::to_string(static_cast<int>(concurrency)));
+  }
   if (index == IndexType::Hnsw) {
     return hnsw.validate();
   }

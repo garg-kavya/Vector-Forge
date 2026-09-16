@@ -1,7 +1,9 @@
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -69,10 +71,12 @@ std::size_t run_query(const CollectionState& state, const QueryView& view, const
 }
 
 // Inserts an already validated (and, for normalised collections, already normalised) row whose id
-// reservation is held. On success consumes the reservation; on any error or exception releases it
-// and leaves the collection unchanged (strong guarantee).
+// reservation is held; `index(internal)` indexes the appended row and must itself give the strong
+// guarantee. On success consumes the reservation; on any error or exception releases it and leaves
+// the collection unchanged (strong guarantee).
+template <class IndexFn>
 Status insert_reserved(CollectionState& state, const IdMap::Reservation& reservation,
-                       std::span<const float> row) {
+                       std::span<const float> row, IndexFn&& index) {
   // Pre-allocate everything that commit needs so that after indexing nothing can fail.
   try {
     state.ids.reserve_capacity(1);
@@ -100,7 +104,7 @@ Status insert_reserved(CollectionState& state, const IdMap::Reservation& reserva
   // backend node ids aligned (HNSW requires node id == row id).
   Status indexed;
   try {
-    indexed = state.backend->add(internal);
+    indexed = index(internal);
   } catch (...) {
     state.vectors.pop_back();
     state.ids.rollback(reservation);
@@ -118,6 +122,12 @@ Status insert_reserved(CollectionState& state, const IdMap::Reservation& reserva
     state.backend->remove(replaced);
   }
   return {};
+}
+
+Status insert_reserved(CollectionState& state, const IdMap::Reservation& reservation,
+                       std::span<const float> row) {
+  return insert_reserved(state, reservation, row,
+                         [&state](InternalId internal) { return state.backend->add(internal); });
 }
 
 // Creates the configured backend over `state`'s vectors and tombstones.
@@ -151,6 +161,129 @@ constexpr std::chrono::microseconds kWriteSliceTime{2000};
 constexpr std::size_t kSearchGrain = 16;
 // Rows per parallel_for chunk when normalising a batch.
 constexpr std::size_t kNormalizeGrain = 256;
+// Level B: rows per link section per participating thread. Searches continue while a section is
+// linked; saves and compaction wait for it.
+constexpr std::size_t kLinkRowsPerWorker = 64;
+
+// Undoes a row that was committed but could not be linked: the row is tombstoned and the id maps
+// to what it mapped to before the insert.
+void abandon_row(CollectionState& state, const IdMap::Reservation& reservation,
+                 InternalId internal) noexcept {
+  state.ids.revert(reservation, internal);
+  state.deleted.set(internal);
+  if (reservation.previous != kInvalidInternalId) {
+    state.deleted.clear(reservation.previous);
+  }
+}
+
+// Locks and state of a collection, as seen by the Level B batch insert.
+struct SyncedState {
+  FairSharedMutex& rw;
+  std::mutex& link;
+  std::shared_ptr<CollectionState>& state;
+};
+
+// Level B add_batch (docs/concurrency.md): alternates an exclusive "grow" section, which appends
+// rows, allocates their graph nodes and publishes their ids (everything that can fail), with a
+// shared "link" section, which connects them while searches continue, on `pool` if given.
+// Precondition: the caller holds the collection's writer mutex and validated the batch.
+Result<std::size_t> add_batch_concurrent(const SyncedState& sync, std::span<const ExternalId> ids,
+                                         std::span<const float> data, std::size_t dim,
+                                         InsertOptions options, ThreadPool* pool) {
+  const std::size_t n = ids.size();
+  const std::size_t workers = pool != nullptr ? pool->size() + 1 : 1;
+  const std::size_t section_rows = kLinkRowsPerWorker * workers;
+  std::vector<IdMap::Reservation> grown;
+  grown.reserve(section_rows);
+  std::vector<char> failed(section_rows);
+
+  std::size_t done = 0;
+  std::size_t inserted = 0;
+  while (done < n) {
+    // Saves hold `link` too, so they never see rows between growing and linking.
+    const std::lock_guard<std::mutex> link_guard(sync.link);
+    Status grow_status;
+    std::exception_ptr grow_exception;
+    InternalId first = 0;
+    grown.clear();
+    {
+      const WriteLock lock(sync.rw);
+      CollectionState& s = *sync.state;
+      auto& hnsw = static_cast<HnswBackend&>(*s.backend);
+      const std::size_t want = std::min(section_rows, n - done);
+      hnsw.prepare_insert(s.vectors.size() + want, workers);  // may throw: nothing changed yet
+      first = static_cast<InternalId>(s.vectors.size());
+      const auto slice_end = std::chrono::steady_clock::now() + kWriteSliceTime;
+      try {
+        while (grown.size() < want) {
+          const std::size_t row = done + grown.size();
+          Result<IdMap::Reservation> reservation = s.ids.reserve(ids[row], options.upsert);
+          if (!reservation.ok()) {
+            grow_status = reservation.status();  // unreachable after validation; kept for safety
+            break;
+          }
+          grow_status =
+              insert_reserved(s, reservation.value(), data.subspan(row * dim, dim),
+                              [&hnsw](InternalId internal) { return hnsw.reserve_node(internal); });
+          if (!grow_status.ok()) {
+            break;
+          }
+          grown.push_back(reservation.value());  // capacity reserved above
+          if (std::chrono::steady_clock::now() >= slice_end) {
+            break;
+          }
+        }
+      } catch (...) {
+        grow_exception = std::current_exception();  // the grown rows are linked first
+      }
+    }
+
+    std::atomic<bool> link_failed{false};
+    if (!grown.empty()) {
+      const ReadLock lock(sync.rw);
+      auto& hnsw = static_cast<HnswBackend&>(*sync.state->backend);
+      auto link_range = [&](std::size_t lo, std::size_t hi) {
+        for (std::size_t i = lo; i < hi; ++i) {
+          failed[i] = 0;
+          try {
+            hnsw.link(first + static_cast<InternalId>(i));
+          } catch (const std::bad_alloc&) {
+            failed[i] = 1;
+            link_failed.store(true);
+          }
+        }
+      };
+      if (pool != nullptr && grown.size() > 1) {
+        pool->parallel_for(0, grown.size(), 1, link_range);
+      } else {
+        link_range(0, grown.size());
+      }
+    }
+
+    std::size_t linked = grown.size();
+    if (link_failed.load()) {
+      const WriteLock lock(sync.rw);
+      for (std::size_t i = 0; i < grown.size(); ++i) {
+        if (failed[i] != 0) {
+          abandon_row(*sync.state, grown[i], first + static_cast<InternalId>(i));
+          --linked;
+        }
+      }
+    }
+    done += grown.size();
+    inserted += linked;
+    if (grow_exception) {
+      std::rethrow_exception(grow_exception);
+    }
+    if (link_failed.load()) {
+      throw std::bad_alloc();
+    }
+    if (!grow_status.ok()) {
+      return grow_status;
+    }
+  }
+  return inserted;
+}
 
 }  // namespace
 }  // namespace detail
@@ -160,11 +293,14 @@ struct Collection::Impl {
       : config(initial->config), state(std::move(initial)) {}
 
   const CollectionConfig config;  // immutable copy: config() needs no lock
-  // Level A synchronisation (docs/concurrency.md): readers hold `rw` shared; mutations hold
-  // `writers` and then `rw` exclusively; compact() holds `writers` and `rw` shared while it builds,
-  // then `rw` exclusively for the swap.
+  // Synchronisation (docs/concurrency.md). Lock order: writers, link, rw.
+  // Readers hold `rw` shared; mutations hold `writers` and then `rw` exclusively; compact() holds
+  // `writers` and `rw` shared while it builds, then `rw` exclusively for the swap. Level B inserts
+  // hold `writers`, and `link` for each grow-and-link section (taking `rw` exclusively to grow,
+  // shared to link); saves hold `link` so that they never see grown but unlinked rows.
   mutable detail::FairSharedMutex rw;
   std::mutex writers;
+  mutable std::mutex link;
   std::shared_ptr<detail::CollectionState> state;
 };
 
@@ -186,6 +322,7 @@ Result<std::unique_ptr<Collection>> CollectionFactory::load_from_memory(
 }
 
 Status CollectionFactory::save_to(const Collection& collection, ByteSink& sink) {
+  const std::lock_guard<std::mutex> link(collection.impl_->link);
   const detail::ReadLock lock(collection.impl_->rw);
   return write_index(*collection.impl_->state, sink);
 }
@@ -213,9 +350,9 @@ Result<std::unique_ptr<Collection>> Collection::load(const std::filesystem::path
   // Heap loads also parse through the mapping (page cache instead of a private copy of the whole
   // file); the mapping is released when read_index returns because nothing keeps it.
   Result<std::unique_ptr<detail::CollectionState>> state = detail::read_index(
-      mapping->data(),
-      {.verify = verify,
-       .owner = options.use_mmap ? std::shared_ptr<const void>(mapping) : nullptr});
+      mapping->data(), {.verify = verify,
+                        .owner = options.use_mmap ? std::shared_ptr<const void>(mapping) : nullptr,
+                        .concurrency = options.concurrency});
   if (!state.ok()) {
     return Status(state.status().code(), file.string() + ": " + state.status().message());
   }
@@ -229,6 +366,7 @@ Result<std::unique_ptr<Collection>> Collection::load(const std::filesystem::path
 }
 
 Status Collection::save(const std::filesystem::path& file) const {
+  const std::lock_guard<std::mutex> link(impl_->link);
   const detail::ReadLock lock(impl_->rw);
   const detail::CollectionState& s = *impl_->state;
   return detail::write_atomic(
@@ -346,6 +484,13 @@ Result<std::size_t> Collection::add_batch(std::span<const ExternalId> ids,
     VF_RETURN_IF_ERROR(s.vectors.reserve(s.vectors.size() + n));
     s.ids.reserve_capacity(n);
     s.deleted.ensure_size(s.vectors.size() + n);
+  }
+
+  if (impl_->config.index == IndexType::Hnsw &&
+      impl_->config.concurrency == Concurrency::Concurrent) {
+    return detail::add_batch_concurrent(
+        {.rw = impl_->rw, .link = impl_->link, .state = impl_->state}, ids, data, dim, options,
+        pool);
   }
 
   std::size_t inserted = 0;

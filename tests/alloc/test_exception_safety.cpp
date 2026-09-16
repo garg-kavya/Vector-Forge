@@ -3,6 +3,8 @@
 // For every insert, each allocation the insert performs is made to fail in turn. A failed insert
 // must leave the collection observably unchanged (strong guarantee), and the collection must stay
 // fully usable: afterwards every live vector is still found by an exact-match search.
+// HNSW runs in both concurrency modes: add() is strong in both; a Level B add_batch() tombstones a
+// row whose linking failed and restores its id mapping, which the batch test's invariants cover.
 
 #include <gtest/gtest.h>
 
@@ -42,10 +44,16 @@ Snapshot snapshot(const Collection& c) {
   return {c.size(), st.row_count, st.deleted_count};
 }
 
-std::unique_ptr<Collection> make(IndexType index) {
+struct Mode {
+  IndexType index;
+  vf::Concurrency concurrency;
+};
+
+std::unique_ptr<Collection> make(Mode mode) {
   vf::CollectionConfig cfg;
   cfg.dim = kDim;
-  cfg.index = index;
+  cfg.index = mode.index;
+  cfg.concurrency = mode.concurrency;
   cfg.hnsw.M = 6;
   cfg.hnsw.ef_construction = 24;
   return Collection::create(cfg).value();
@@ -68,7 +76,7 @@ void expect_all_findable(const Collection& c,
   EXPECT_EQ(missing, 0U);
 }
 
-class ExceptionSafety : public testing::TestWithParam<IndexType> {
+class ExceptionSafety : public testing::TestWithParam<Mode> {
  protected:
   void SetUp() override {
 #if defined(_MSC_VER) && defined(_ITERATOR_DEBUG_LEVEL) && _ITERATOR_DEBUG_LEVEL == 2
@@ -174,9 +182,12 @@ TEST_P(ExceptionSafety, AddBatchRollsBackOnlyTheFailingRow) {
 }
 
 INSTANTIATE_TEST_SUITE_P(Indexes, ExceptionSafety,
-                         testing::Values(IndexType::Flat, IndexType::Hnsw),
-                         [](const testing::TestParamInfo<IndexType>& param_info) {
-                           return std::string(vf::to_string(param_info.param));
+                         testing::Values(Mode{IndexType::Flat, vf::Concurrency::Coarse},
+                                         Mode{IndexType::Hnsw, vf::Concurrency::Coarse},
+                                         Mode{IndexType::Hnsw, vf::Concurrency::Concurrent}),
+                         [](const testing::TestParamInfo<Mode>& param_info) {
+                           return std::string(vf::to_string(param_info.param.index)) + "_" +
+                                  std::string(vf::to_string(param_info.param.concurrency));
                          });
 
 }  // namespace

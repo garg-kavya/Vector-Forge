@@ -14,7 +14,9 @@ using vf::detail::HnswGraph;
 using vf::detail::LinkView;
 
 std::vector<InternalId> ids_of(LinkView view) {
-  return {view.ids().begin(), view.ids().end()};
+  std::vector<InternalId> ids;
+  view.copy_to(ids);
+  return ids;
 }
 
 TEST(HnswGraph, CreateValidatesOptions) {
@@ -91,8 +93,8 @@ TEST(HnswGraph, StableAddressesAcrossChunks) {
       HnswGraph::create({.m = 3, .max_level = 2, .nodes_per_chunk = 4, .arena_chunk_words = 16})
           .value();
   constexpr std::uint32_t kNodes = 50;
-  std::vector<const InternalId*> l0_addresses;
-  std::vector<const InternalId*> upper_addresses;
+  std::vector<const vf::detail::LinkWord*> l0_addresses;
+  std::vector<const vf::detail::LinkWord*> upper_addresses;
   for (std::uint32_t i = 0; i < kNodes; ++i) {
     const auto level = static_cast<std::uint8_t>(i % 3);
     ASSERT_TRUE(g.add_node(level).ok());
@@ -100,14 +102,14 @@ TEST(HnswGraph, StableAddressesAcrossChunks) {
     for (std::uint8_t l = 0; l <= level; ++l) {
       g.set_links(i, l, std::vector<InternalId>{(i + 1 + l) % kNodes});
     }
-    l0_addresses.push_back(g.links(i, 0).ids().data());
-    upper_addresses.push_back(level > 0 ? g.links(i, level).ids().data() : nullptr);
+    l0_addresses.push_back(g.links(i, 0).slots());
+    upper_addresses.push_back(level > 0 ? g.links(i, level).slots() : nullptr);
   }
   for (std::uint32_t i = 0; i < kNodes; ++i) {
     const auto level = static_cast<std::uint8_t>(i % 3);
-    EXPECT_EQ(g.links(i, 0).ids().data(), l0_addresses[i]) << "node " << i;
+    EXPECT_EQ(g.links(i, 0).slots(), l0_addresses[i]) << "node " << i;
     if (level > 0) {
-      EXPECT_EQ(g.links(i, level).ids().data(), upper_addresses[i]) << "node " << i;
+      EXPECT_EQ(g.links(i, level).slots(), upper_addresses[i]) << "node " << i;
     }
     for (std::uint8_t l = 0; l <= level; ++l) {
       ASSERT_EQ(g.links(i, l).size(), 1U);

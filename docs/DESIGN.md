@@ -1993,6 +1993,25 @@ flowchart LR
   striped mutex vs spinlock if contention visible.
 - **Acceptance:** TSan clean; validator passes after every parallel build; recall within measured tolerance of
   serial; measured build speedup documented. **If any gate fails, Level B stays disabled and documented.**
+- **Implementation notes (as built):** gates passed; `Concurrency::Concurrent` is the default
+  ([ADR-0003](adr/0003-concurrent-hnsw-insert.md), `docs/concurrency.md` "Level B", results in
+  `benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6b`).
+  - Insertion is split into an exclusive *grow* section (vector append, node allocation, id map,
+    tombstones, scratch sizing — everything that can fail) and a shared *link* section run on the
+    pool. Directories therefore change only under the exclusive lock: there is no atomic chunk
+    directory, no `grow_mutex_`, no `PENDING` id state and no atomic tombstone words; `IdMap` and
+    `TombstoneSet` stay thread-compatible. Saves take a `link` mutex instead of a `writer_gate_`.
+  - Link slots and counts are `std::atomic<uint32_t>` (`AtomicArray`), 4 096 striped mutexes
+    (`src/concurrency/striped_mutex.hpp`); the entry point is one atomic, written under
+    `top_mutex_`, which an insertion above the observed top level holds throughout (no CAS loop).
+  - Files differ from the plan: no `hnsw_graph` chunked-node rewrite was needed (Phase 3 storage was
+    already chunked); tests are `test_parallel_build.cpp` and `test_concurrent_insert_search.cpp`
+    (the latter also covers deletion linearisation, instead of a separate
+    `test_delete_linearization.cpp`).
+  - `CollectionConfig::concurrency` is not persisted; `LoadOptions::concurrency` sets it on load.
+  - Measured (d = 128, 100K): build 6.2× on 8 threads, recall within 0.0002 of serial; search p50
+    during ingestion 0.084 ms vs 2.27 ms with Level A. The spinlock alternative was not run (no
+    contention signal).
 
 ### Phase 7 — HTTP API
 

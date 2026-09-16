@@ -8,6 +8,7 @@
 // std::bad_array_new_length. Both are treated as fatal by the frontends (docs/DESIGN.md §4.7).
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cstddef>
 #include <limits>
@@ -56,6 +57,30 @@ template <class T, std::size_t Alignment = kCacheLineAlignment>
   AlignedArray<T, Alignment> array = make_aligned_array<T, Alignment>(count);
   std::fill_n(array.get(), count, T{});
   return array;
+}
+
+// Over-aligned array of std::atomic<T> (not trivially copyable, but trivially destructible), with
+// every element constructed holding T{}.
+template <class T, std::size_t Alignment = kCacheLineAlignment>
+  requires(std::is_integral_v<T> && std::is_trivially_destructible_v<std::atomic<T>> &&
+           std::has_single_bit(Alignment) && Alignment >= alignof(std::atomic<T>))
+// NOLINTNEXTLINE(modernize-avoid-c-arrays): unique_ptr<T[]> owns the aligned array
+using AtomicArray = std::unique_ptr<std::atomic<T>[], AlignedDeleter<Alignment>>;
+
+template <class T, std::size_t Alignment = kCacheLineAlignment>
+[[nodiscard]] AtomicArray<T, Alignment> make_atomic_array(std::size_t count) {
+  if (count == 0) {
+    return AtomicArray<T, Alignment>{};
+  }
+  if (count > std::numeric_limits<std::size_t>::max() / sizeof(std::atomic<T>)) {
+    throw std::bad_array_new_length();
+  }
+  void* raw = ::operator new(count * sizeof(std::atomic<T>), std::align_val_t{Alignment});
+  auto* first = static_cast<std::atomic<T>*>(raw);
+  for (std::size_t i = 0; i < count; ++i) {
+    ::new (static_cast<void*>(first + i)) std::atomic<T>(T{});  // constructors cannot throw
+  }
+  return AtomicArray<T, Alignment>{first};
 }
 
 // Standard allocator with a minimum alignment, for std::vector<float, AlignedAllocator<float>>.

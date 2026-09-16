@@ -46,6 +46,19 @@ TEST(Types, IndexTypeRoundTrip) {
   EXPECT_FALSE(vf::is_valid(static_cast<IndexType>(9)));
 }
 
+TEST(Types, ConcurrencyRoundTrip) {
+  for (const vf::Concurrency c : {vf::Concurrency::Coarse, vf::Concurrency::Concurrent}) {
+    EXPECT_EQ(vf::parse_concurrency(vf::to_string(c)).value(), c);
+  }
+  EXPECT_EQ(vf::parse_concurrency("fast").status().code(), ErrorCode::InvalidArgument);
+  EXPECT_EQ(vf::to_string(static_cast<vf::Concurrency>(5)), "invalid");
+  vf::CollectionConfig cfg;
+  cfg.dim = 4;
+  EXPECT_EQ(cfg.concurrency, vf::Concurrency::Concurrent);
+  cfg.concurrency = static_cast<vf::Concurrency>(5);
+  EXPECT_EQ(cfg.validate().code(), ErrorCode::InvalidArgument);
+}
+
 TEST(Types, NeighborEquality) {
   EXPECT_EQ((vf::Neighbor{1, 0.5F}), (vf::Neighbor{1, 0.5F}));
   EXPECT_FALSE((vf::Neighbor{1, 0.5F}) == (vf::Neighbor{2, 0.5F}));

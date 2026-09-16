@@ -12,7 +12,8 @@
 //   commit(res, internal) -> publishes the mapping and appends the label
 //   rollback(res) -> restores the previous state
 //
-// Thread safety: thread-compatible (Phase 2). Phase 6b adds internal locking.
+// Thread safety: thread-compatible. Collections change it only under their exclusive lock, also
+// in Level B (docs/concurrency.md), so it needs no locking of its own.
 
 #include <cstddef>
 #include <cstdint>
@@ -48,6 +49,11 @@ class IdMap {
 
   // Cancels a reservation, restoring the previous mapping.
   void rollback(const Reservation& reservation) noexcept;
+
+  // Undoes a commit(reservation, internal) after the fact: the key maps to reservation.previous
+  // again, or is removed for a new key. The label of `internal` stays. Precondition: the key still
+  // maps to `internal`.
+  void revert(const Reservation& reservation, InternalId internal) noexcept;
 
   // Removes a committed mapping and returns the internal id it pointed to.
   // Errors: NotFound.

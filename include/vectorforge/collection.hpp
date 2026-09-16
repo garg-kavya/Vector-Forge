@@ -9,7 +9,9 @@
 // number of threads. Reads (search*, get, contains, size, stats, save) run in parallel under a
 // shared lock. Mutations (add, add_batch, remove) are serialised and block reads only while they
 // modify the collection; add_batch holds the lock for at most about 2 ms at a time so that searches
-// interleave with long ingestions (the lock is fair: docs/concurrency.md "Fairness"). compact()
+// interleave with long ingestions (the lock is fair: docs/concurrency.md "Fairness"). For HNSW
+// with CollectionConfig::concurrency == Concurrent (the default), add_batch holds the lock only to
+// append rows and links them into the graph while searches run. compact()
 // lets searches continue while it rebuilds and blocks them only for the final swap. A search that
 // runs concurrently with remove(id) may or may not return id; a search that starts after
 // remove(id) returned never does.
@@ -115,7 +117,9 @@ class Collection {
   // A failure after validation (index error) returns the error; rows before it stay inserted and
   // the failing row leaves no trace. std::bad_alloc propagates with the same semantics. Other
   // writers wait for the whole batch; searches may observe a partially inserted batch. With a
-  // `pool`, normalisation runs in parallel.
+  // `pool`, normalisation runs in parallel, and so does HNSW linking in Concurrent mode. In that
+  // mode a row whose linking fails with std::bad_alloc is tombstoned (its id keeps its previous
+  // state) before the exception propagates.
   [[nodiscard]] Result<std::size_t> add_batch(std::span<const ExternalId> ids,
                                               std::span<const float> rows,
                                               InsertOptions options = {},

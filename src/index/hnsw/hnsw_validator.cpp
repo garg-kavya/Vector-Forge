@@ -46,7 +46,7 @@ Status HnswValidator::check_invariants() const {
         return Status::internal(where(id, l) + "count " + std::to_string(links.size()) +
                                 " exceeds capacity " + std::to_string(g.capacity(l)));
       }
-      sorted.assign(links.ids().begin(), links.ids().end());
+      links.copy_to(sorted);
       for (const InternalId neighbor : sorted) {
         if (neighbor >= n) {
           return Status::internal(where(id, l) + "link to nonexistent node " +
@@ -95,7 +95,8 @@ HnswReachability HnswValidator::reachability() const {
     seen[entry.id] = 1;
     for (std::size_t head = 0; head < queue.size(); ++head) {
       const LinkView links = g.links(queue[head], l);
-      for (const InternalId neighbor : links.ids()) {
+      for (std::uint32_t j = 0; j < links.size(); ++j) {
+        const InternalId neighbor = links[j];
         if (seen[neighbor] == 0) {
           seen[neighbor] = 1;
           queue.push_back(neighbor);

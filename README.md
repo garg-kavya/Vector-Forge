@@ -5,15 +5,15 @@ VectorForge is a C++20 vector similarity search engine built from first principl
 distance kernels, a thread pool, a versioned on-disk format with memory-mapped vectors, an HTTP API
 and Python bindings.
 
-> **Status:** early development — Phases 0–6a of the [engineering design](docs/DESIGN.md) are
+> **Status:** early development — Phases 0–6b of the [engineering design](docs/DESIGN.md) are
 > complete: toolchain; core types, deterministic RNG, scalar distance kernels, vector storage; exact
 > (Flat) search, dataset I/O and the `vectorforge gen-data` / `ground-truth` CLI; single-threaded
 > HNSW approximate search ([docs/hnsw.md](docs/hnsw.md)); checksummed, crash-safe persistence with
 > memory-mapped loading and the `build` / `search` / `info` / `verify` CLI
 > ([docs/storage-format.md](docs/storage-format.md)); AVX2 + FMA distance kernels selected at runtime
 > ([docs/simd.md](docs/simd.md)); a thread pool, parallel batch search and a fully thread-safe
-> `Collection` with a fair reader/writer lock ([docs/concurrency.md](docs/concurrency.md)).
-> Concurrent HNSW insertion, HTTP and Python are *planned*, not implemented.
+> `Collection` with a fair reader/writer lock and concurrent HNSW insertion
+> ([docs/concurrency.md](docs/concurrency.md)). HTTP and Python are *planned*, not implemented.
 
 ## Quick start (current API)
 
@@ -60,10 +60,13 @@ binary). On the development laptop (Ryzen 7 4800H, MSVC, one thread) AVX2 made H
 ([results](benchmarks/results/2026-09-14_ryzen7-4800h_msvc-release_phase5/README.md)).
 
 `vf::Collection` may be shared between threads: searches run in parallel, mutations are serialised,
-and `compact()` rebuilds without blocking searches. Pass a `vf::ThreadPool` to `search_batch` /
-`add_batch` (or `--threads` to `ground-truth` / `build`) to use several cores; batch HNSW search
-reached 4.8× at 16 threads on the same laptop
-([results](benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6a/README.md)).
+and `compact()` rebuilds without blocking searches; HNSW rows are linked into the graph while
+searches run. Pass a `vf::ThreadPool` to `search_batch` / `add_batch` (or `--threads` to
+`ground-truth` / `build`) to use several cores. On the same laptop, batch HNSW search reached 4.8×
+at 16 threads and HNSW construction 6.2× at 8 threads (100 000 × 128-d, recall unchanged), and
+searches during ingestion kept a 0.084 ms median
+([6a](benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6a/README.md),
+[6b](benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6b/README.md)).
 
 ## Goals
 

@@ -12,8 +12,8 @@
 // base. Mapped rows are 4-byte aligned (their segment starts on a page boundary).
 //
 // Thread safety: thread-compatible. Concurrent const access is safe; append()/reserve()/pop_back()
-// require exclusive access. Phase 6b replaces the chunk directory with a fixed-capacity atomic
-// directory so that readers can run concurrently with appends.
+// require exclusive access. Level B concurrency (docs/concurrency.md) keeps this contract: rows are
+// appended under the collection's exclusive lock and only read while inserts are linked.
 //
 // The store does not validate row contents; callers validate at the API boundary.
 
@@ -71,8 +71,8 @@ class VectorStore {
   [[nodiscard]] Result<InternalId> append(std::span<const float> row);
 
   // Removes the last row (undoes the most recent append; chunk memory is kept for reuse).
-  // Precondition: size() > mapped_rows() and no reader still uses that row. Phase 6b must revisit
-  // this for concurrent readers.
+  // Precondition: size() > mapped_rows() and no reader can have seen that row (the collection pops
+  // only rows that were never indexed, under its exclusive lock).
   void pop_back() noexcept {
     VF_ASSERT(size_ > mapped_rows_, "VectorStore::pop_back on empty store or mapped row");
     --size_;

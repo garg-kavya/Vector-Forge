@@ -46,6 +46,16 @@ std::string_view to_string(IndexType type) noexcept {
   return "invalid";
 }
 
+std::string_view to_string(Concurrency mode) noexcept {
+  switch (mode) {
+    case Concurrency::Coarse:
+      return "coarse";
+    case Concurrency::Concurrent:
+      return "concurrent";
+  }
+  return "invalid";
+}
+
 Result<Metric> parse_metric(std::string_view text) {
   if (text == "l2") {
     return Metric::L2;
@@ -69,6 +79,17 @@ Result<IndexType> parse_index_type(std::string_view text) {
   }
   return Status::invalid_argument("unknown index type '" + std::string(text) +
                                   "' (expected flat or hnsw)");
+}
+
+Result<Concurrency> parse_concurrency(std::string_view text) {
+  if (text == "coarse") {
+    return Concurrency::Coarse;
+  }
+  if (text == "concurrent") {
+    return Concurrency::Concurrent;
+  }
+  return Status::invalid_argument("unknown concurrency mode '" + std::string(text) +
+                                  "' (expected coarse or concurrent)");
 }
 
 }  // namespace vf

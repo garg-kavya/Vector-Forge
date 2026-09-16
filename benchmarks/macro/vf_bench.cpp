@@ -82,7 +82,14 @@ struct Options {
   std::vector<std::uint32_t> threads{1, 2, 4, 8, 16};
   std::uint32_t repeat = 5;
   std::uint32_t batch = 1000;
+  // ingest / build: HNSW insert synchronisation, and threads used by the ingest writer
+  std::string concurrency = "concurrent";
+  std::uint32_t writer_threads = 1;
 };
+
+vf::Concurrency concurrency_of(const Options& o) {
+  return vf::parse_concurrency(o.concurrency).value();
+}
 
 void set_simd_request(const std::string& request) {
 #if defined(_WIN32)
@@ -342,6 +349,7 @@ int run_ingest(const Options& o, vf::Metric metric) {
   cfg.index = o.index_type == "flat" ? vf::IndexType::Flat : vf::IndexType::Hnsw;
   cfg.hnsw.M = o.m;
   cfg.hnsw.ef_construction = o.ef_construction;
+  cfg.concurrency = concurrency_of(o);
   const std::unique_ptr<vf::Collection> c = vf::Collection::create(cfg).value();
   const std::vector<float> base = generate(o, o.n, o.seed);
   const std::vector<float> queries = generate(o, o.queries, o.seed + 1);
@@ -381,12 +389,14 @@ int run_ingest(const Options& o, vf::Metric metric) {
   std::atomic<bool> writing{true};
   double ingest_seconds = 0.0;
   std::thread writer([&] {
+    const std::unique_ptr<vf::ThreadPool> pool =
+        o.writer_threads > 1 ? std::make_unique<vf::ThreadPool>(o.writer_threads - 1) : nullptr;
     const d::Stopwatch sw;
     for (std::size_t first = half; first < ids.size(); first += o.batch) {
       const std::size_t count = std::min<std::size_t>(o.batch, ids.size() - first);
-      static_cast<void>(
-          c->add_batch(std::span<const ExternalId>(ids).subspan(first, count),
-                       std::span<const float>(base).subspan(first * o.dim, count * o.dim)));
+      static_cast<void>(c->add_batch(
+          std::span<const ExternalId>(ids).subspan(first, count),
+          std::span<const float>(base).subspan(first * o.dim, count * o.dim), {}, pool.get()));
     }
     ingest_seconds = sw.elapsed_seconds();
     writing = false;
@@ -411,11 +421,115 @@ int run_ingest(const Options& o, vf::Metric metric) {
        << ", \"ef_construction\": " << o.ef_construction << ", \"k\": " << o.k
        << ", \"ef_search\": " << o.ef_search.front() << ", \"preloaded\": " << half
        << ", \"ingested\": " << (ids.size() - half) << ", \"batch\": " << o.batch
+       << ", \"concurrency\": \"" << o.concurrency << "\", \"writer_threads\": " << o.writer_threads
        << ", \"reader_threads\": 1},\n"
        << "  \"result\": {\"ingest_seconds\": " << ingest_seconds
        << ", \"ingest_vectors_per_s\": " << static_cast<double>(ids.size() - half) / ingest_seconds
        << ", \"search_idle\": " << summary(quiet) << ", \"search_during_ingest\": " << summary(busy)
        << "}\n}\n";
+  emit(o, json.str());
+  return 0;
+}
+
+// build: HNSW construction time through Collection::add_batch as a function of the thread count
+// (docs/DESIGN.md §16.3 "build scaling"), with recall@k of each graph against exact results and
+// the validator's view of each graph. The first row is the Level A (Coarse) serial build.
+int run_build(const Options& o, vf::Metric metric) {
+  const std::vector<float> base = generate(o, o.n, o.seed);
+  const std::vector<float> queries = generate(o, o.queries, o.seed + 1);
+  const auto n = static_cast<std::size_t>(o.n);
+  const auto nq = static_cast<std::size_t>(o.queries);
+  std::vector<ExternalId> ids(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    ids[i] = i;
+  }
+  vf::CollectionConfig cfg;
+  cfg.dim = o.dim;
+  cfg.metric = metric;
+  cfg.hnsw.M = o.m;
+  cfg.hnsw.ef_construction = o.ef_construction;
+
+  // Exact ground truth, computed in parallel.
+  const auto hw = std::max<std::uint32_t>(std::thread::hardware_concurrency(), 2U);
+  vf::ThreadPool gt_pool(hw - 1);
+  vf::CollectionConfig flat_cfg = cfg;
+  flat_cfg.index = vf::IndexType::Flat;
+  const std::unique_ptr<vf::Collection> flat = vf::Collection::create(flat_cfg).value();
+  static_cast<void>(flat->add_batch(ids, base));
+  vf::SearchParams exact;
+  exact.k = o.k;
+  std::vector<ExternalId> gt_ids(nq * o.k);
+  std::vector<float> gt_dist(nq * o.k);
+  std::vector<std::uint32_t> counts(nq);
+  static_cast<void>(flat->search_batch(queries, nq, exact, gt_ids, gt_dist, counts, &gt_pool));
+
+  std::ostringstream json;
+  json << "{\n  \"schema\": 1, \"suite\": \"build\",\n"
+       << environment_json() << "  \"dataset\": {\"distribution\": \"" << o.distribution
+       << "\", \"n\": " << o.n << ", \"dim\": " << o.dim << ", \"metric\": \""
+       << vf::to_string(metric) << "\", \"seed\": " << o.seed << "},\n"
+       << "  \"params\": {\"M\": " << o.m << ", \"ef_construction\": " << o.ef_construction
+       << ", \"k\": " << o.k << ", \"queries\": " << nq << ", \"batch\": " << o.batch
+       << ", \"hardware_threads\": " << std::thread::hardware_concurrency() << "},\n"
+       << "  \"results\": [\n";
+
+  struct Run {
+    vf::Concurrency mode;
+    std::uint32_t threads;
+  };
+  std::vector<Run> runs{{vf::Concurrency::Coarse, 1}};
+  for (const std::uint32_t t : o.threads) {
+    runs.push_back({vf::Concurrency::Concurrent, t});
+  }
+  double coarse_seconds = 0.0;
+  for (std::size_t r = 0; r < runs.size(); ++r) {
+    cfg.concurrency = runs[r].mode;
+    const std::unique_ptr<vf::Collection> c = vf::Collection::create(cfg).value();
+    const std::unique_ptr<vf::ThreadPool> pool =
+        runs[r].threads > 1 ? std::make_unique<vf::ThreadPool>(runs[r].threads - 1) : nullptr;
+    const d::Stopwatch sw;
+    for (std::size_t first = 0; first < n; first += o.batch) {
+      const std::size_t count = std::min<std::size_t>(o.batch, n - first);
+      if (!c->add_batch(std::span<const ExternalId>(ids).subspan(first, count),
+                        std::span<const float>(base).subspan(first * o.dim, count * o.dim), {},
+                        pool.get())
+               .ok()) {
+        std::cerr << "add_batch failed\n";
+        return 1;
+      }
+    }
+    const double seconds = sw.elapsed_seconds();
+    if (r == 0) {
+      coarse_seconds = seconds;
+    }
+    const auto& hnsw = static_cast<const d::HnswBackend&>(*d::CollectionFactory::state(*c).backend);
+    const d::HnswValidator validator(hnsw.graph());
+    const bool valid = validator.check_invariants().ok();
+    const std::uint64_t unreachable = valid ? validator.reachability().unreachable_level0() : 0;
+    json << "    {\"concurrency\": \"" << vf::to_string(runs[r].mode)
+         << "\", \"threads\": " << runs[r].threads << ", \"build_seconds\": " << seconds
+         << ", \"speedup_vs_coarse\": " << coarse_seconds / seconds
+         << ", \"valid\": " << (valid ? "true" : "false")
+         << ", \"unreachable_level0\": " << unreachable
+         << ", \"orphans_unrepaired\": " << hnsw.build_stats().orphans_unrepaired
+         << ", \"recall\": [";
+    for (std::size_t e = 0; e < o.ef_search.size(); ++e) {
+      vf::SearchParams p;
+      p.k = o.k;
+      p.ef_search = o.ef_search[e];
+      std::vector<ExternalId> got_ids(nq * o.k);
+      std::vector<float> got_dist(nq * o.k);
+      static_cast<void>(c->search_batch(queries, nq, p, got_ids, got_dist, counts, &gt_pool));
+      const double recall =
+          d::recall_at_k(got_ids, got_dist, o.k, gt_ids, gt_dist, o.k, nq, o.k).value().mean;
+      json << (e == 0 ? "" : ", ") << "{\"ef_search\": " << o.ef_search[e]
+           << ", \"recall\": " << recall << "}";
+    }
+    json << "]}" << (r + 1 < runs.size() ? "," : "") << "\n";
+    std::cerr << vf::to_string(runs[r].mode) << " threads=" << runs[r].threads
+              << " build=" << seconds << "s valid=" << valid << "\n";
+  }
+  json << "  ]\n}\n";
   emit(o, json.str());
   return 0;
 }
@@ -441,8 +555,12 @@ int run(int argc, char** argv) {
   app.add_flag("--no-repair", o.no_repair, "disable new-node orphan repair");
   app.add_flag("--skip-flat-timing", o.skip_flat_timing, "do not time Flat queries");
   app.add_option("--out", o.out, "JSON output file (default: stdout only)");
-  app.add_option("--scenario", o.scenario, "sweep | save | load | threads | ingest")
-      ->check(CLI::IsMember({"sweep", "save", "load", "threads", "ingest"}));
+  app.add_option("--scenario", o.scenario, "sweep | save | load | threads | ingest | build")
+      ->check(CLI::IsMember({"sweep", "save", "load", "threads", "ingest", "build"}));
+  app.add_option("--concurrency", o.concurrency, "ingest/build: coarse | concurrent")
+      ->check(CLI::IsMember({"coarse", "concurrent"}));
+  app.add_option("--writer-threads", o.writer_threads, "ingest: threads of the add_batch writer")
+      ->check(CLI::Range(1U, 256U));
   app.add_option("--threads", o.threads, "threads: thread counts")->delimiter(',');
   app.add_option("--repeat", o.repeat, "threads: timed passes per thread count")
       ->check(CLI::Range(1U, 1000U));
@@ -487,6 +605,9 @@ int run(int argc, char** argv) {
   }
   if (o.scenario == "ingest") {
     return run_ingest(o, metric.value());
+  }
+  if (o.scenario == "build") {
+    return run_build(o, metric.value());
   }
   vf::HnswParams params;
   params.M = o.m;

@@ -68,6 +68,19 @@ Result<InternalId> IdMap::erase(ExternalId external) {
   return internal;
 }
 
+void IdMap::revert(const Reservation& reservation, InternalId internal) noexcept {
+  const auto it = map_.find(reservation.external);
+  VF_ASSERT(it != map_.end() && !it->second.pending && it->second.current == internal,
+            "IdMap::revert: key does not map to the row");
+  static_cast<void>(internal);
+  if (reservation.previous != kInvalidInternalId) {
+    it->second.current = reservation.previous;
+    return;
+  }
+  map_.erase(it);
+  --live_;
+}
+
 std::optional<InternalId> IdMap::find(ExternalId external) const noexcept {
   const auto it = map_.find(external);
   if (it == map_.end() || it->second.current == kInvalidInternalId) {
