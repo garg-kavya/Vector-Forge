@@ -14,6 +14,8 @@ set(VF_HTTPLIB_VERSION 0.54.1)
 set(VF_HTTPLIB_SHA256 7310f5312e1423830d649b38ed028e9db86303a979ccbfdbd1c4b1574f422dfb)
 set(VF_JSON_VERSION 3.12.0)
 set(VF_JSON_SHA256 42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa)
+set(VF_PYBIND11_VERSION 3.1.0)
+set(VF_PYBIND11_SHA256 ef712655692a2e9bf7bb7874c022564a45f91d847ddee987e720cd9e28849665)
 
 if(VF_BUILD_CLI)
   if(VF_USE_SYSTEM_DEPS)
@@ -69,6 +71,22 @@ if(VF_BUILD_SERVER)
     # cpp-httplib requires Windows 10 APIs and Winsock.
     target_compile_definitions(vf_httplib INTERFACE _WIN32_WINNT=0x0A00 WIN32_LEAN_AND_MEAN NOMINMAX)
     target_link_libraries(vf_httplib INTERFACE ws2_32)
+  endif()
+endif()
+
+if(VF_BUILD_PYTHON)
+  # In-tree module builds only; `pip install ./python` takes pybind11 from its build requirements.
+  find_package(Python 3.11 REQUIRED COMPONENTS Interpreter Development.Module)
+  if(VF_USE_SYSTEM_DEPS)
+    find_package(pybind11 CONFIG REQUIRED)
+  else()
+    FetchContent_Declare(
+      pybind11
+      URL https://github.com/pybind/pybind11/archive/refs/tags/v${VF_PYBIND11_VERSION}.tar.gz
+      URL_HASH SHA256=${VF_PYBIND11_SHA256}
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+      SYSTEM)
+    FetchContent_MakeAvailable(pybind11)
   endif()
 endif()
 

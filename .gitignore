@@ -35,3 +35,4 @@ wheelhouse/
 # OS
 .DS_Store
 Thumbs.db
+/python/build/

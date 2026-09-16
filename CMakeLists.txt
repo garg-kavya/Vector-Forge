@@ -13,7 +13,7 @@ option(VF_BUILD_TESTS "Build unit/integration tests (GoogleTest)" ON)
 option(VF_BUILD_BENCHMARKS "Build micro benchmarks (Google Benchmark)" ON)
 option(VF_BUILD_CLI "Build the vectorforge CLI" ON)
 option(VF_BUILD_SERVER "Build the HTTP server (vf_server, `vectorforge serve`)" ON)
-option(VF_BUILD_PYTHON "Build Python bindings (Phase 8)" OFF)
+option(VF_BUILD_PYTHON "Build the Python module in-tree (pip install ./python is the usual route)" OFF)
 option(VF_ENABLE_AVX2 "Compile AVX2+FMA kernels for runtime dispatch (Phase 5)" ON)
 option(VF_NATIVE "Compile everything for the host CPU (-march=native / /arch:AVX2); benchmark-only" OFF)
 option(VF_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
@@ -107,9 +107,13 @@ configure_file(include/vectorforge/version.hpp.in "${VF_GENERATED_INCLUDE_DIR}/v
 # ---------------------------------------------------------------------------
 # Targets
 # ---------------------------------------------------------------------------
+if(VF_BUILD_PYTHON)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)  # the core is linked into a shared module
+endif()
+
 add_subdirectory(src)
 
-if(VF_BUILD_TESTS OR VF_BUILD_BENCHMARKS OR VF_BUILD_CLI OR VF_BUILD_SERVER)
+if(VF_BUILD_TESTS OR VF_BUILD_BENCHMARKS OR VF_BUILD_CLI OR VF_BUILD_SERVER OR VF_BUILD_PYTHON)
   include(Dependencies)
 endif()
 
@@ -130,11 +134,9 @@ if(VF_BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
 endif()
 
-foreach(vf_future IN ITEMS VF_BUILD_PYTHON)
-  if(${vf_future})
-    message(STATUS "${vf_future}=ON has no effect yet (component not implemented in this phase)")
-  endif()
-endforeach()
+if(VF_BUILD_PYTHON)
+  add_subdirectory(python)
+endif()
 
 message(STATUS "VectorForge ${PROJECT_VERSION} (${VF_GIT_SHA}) build=${CMAKE_BUILD_TYPE} "
                "compiler=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION} sanitize='${VF_SANITIZE}'")

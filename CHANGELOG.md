@@ -110,6 +110,18 @@ All notable changes to this project are documented here. The format follows
   snapshot, drain on stop, drop while in use, concurrent clients, catalog recovery and damaged
   files; JSON request fuzz target (replay test everywhere, libFuzzer in CI). `vf_http_bench`.
 
+- Phase 8: Python bindings. `vectorforge` package (pybind11 3.1.0, scikit-build-core 1.0.3,
+  pinned): `vf.Index` with add (automatic or explicit ids, upsert), search (1-D/2-D, padded
+  `uint64`/`float32` results written in place), remove, get, `in`, `len`, save, load (mmap,
+  verify), compact, stats, config; `vf.simd_level()`; exception classes `VectorForgeError`,
+  `DuplicateIdError`, `CorruptIndexError` and the documented mapping to built-in exceptions.
+  Zero-copy for float32 C-contiguous input, `strict=` mode, GIL released in long calls, shared
+  thread pools. `pip install ./python` or in-tree `-DVF_BUILD_PYTHON=ON` (pytest registered in
+  CTest). pytest suite (exactness against NumPy, recall, persistence, conversions, errors,
+  threads and GIL release), Python CI on Linux and Windows with CPython 3.12 and 3.14,
+  `examples/python/quickstart.py`, `docs/python-api.md`, `benchmarks/python/bench_overhead.py`
+  and `vf_bench --queries-file`.
+
 - Fault-injection tests (`test_exception_safety`): every allocation of every insert fails in turn;
   failed inserts must leave collections unchanged and fully searchable. Concurrent-read test
   (`vf_concurrency_tests`) for the const-member thread-safety contract, clean under TSan.

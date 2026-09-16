@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "suite": "python-overhead",
+  "vectorforge": {
+    "version": "0.1.0",
+    "git_sha": "1b9cee572c9a-dirty",
+    "simd": "avx2"
+  },
+  "python": "3.14.3",
+  "numpy": "2.5.3",
+  "cpp": {
+    "git": {
+      "sha": "1b9cee572c9a-dirty"
+    },
+    "build": {
+      "compiler": "MSVC 19.50.35728.0",
+      "type": "Release",
+      "simd_tier": "avx2",
+      "kernel_table": "avx2"
+    },
+    "machine": {
+      "cpu": "AMD Ryzen 7 4800H with Radeon Graphics"
+    }
+  },
+  "params": {
+    "index": {
+      "index": "hnsw",
+      "rows": 100000,
+      "dim": 128,
+      "metric": "l2",
+      "k": 10,
+      "ef_search": 64,
+      "queries": 5000,
+      "repeat": 5,
+      "hardware_threads": 16
+    },
+    "queries": 5000,
+    "k": 10,
+    "ef_search": 64,
+    "repeat": 5,
+    "threads": 1
+  },
+  "results": {
+    "cpp_search_batch_qps": 9656.92,
+    "python_batch_qps": {
+      "median": 9716.828302877699,
+      "min": 9654.820845146496,
+      "max": 9774.488857776225
+    },
+    "python_per_query_qps": {
+      "median": 9154.886768702761,
+      "min": 9075.0096739502,
+      "max": 9222.339161513208
+    },
+    "python_batch_vs_cpp": 1.0062036656488507,
+    "python_per_query_overhead_us": 6.3170400000671965
+  }
+}

@@ -2061,6 +2061,21 @@ flowchart LR
 - **Benchmarks:** Python overhead vs C++ `vf_bench` for batch search (same index file).
 - **Acceptance:** `pip install ./python` works on Windows (MSVC) + Linux; pytest green on CPython 3.12 and 3.14;
   no copy for float32 C-contiguous inputs verified (pointer identity test via a debug hook).
+- **Implementation notes (as built):** the complete description is `docs/python-api.md`; results in
+  `benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_phase8`.
+  - pybind11 3.1.0 and scikit-build-core 1.0.3, pinned exactly in `python/pyproject.toml`.
+    `python/CMakeLists.txt` builds the core from the repository root (so installs work from a
+    checkout, not from an sdist of `python/`); `-DVF_BUILD_PYTHON=ON` builds the module in-tree
+    with a fetched, hash-pinned pybind11 and registers `python.pytest` in CTest.
+  - `Index` arguments are keyword-only. Additions: `strict=`, `upsert=`, `concurrency=`,
+    `verify=` on `load`, `config`, `compact()`, `__contains__` (accepts NumPy integers),
+    `vf.INVALID_ID`, `vf.git_sha`, `vf.VectorForgeError` as the common base; omitted ids are row
+    numbers after every stored row. `ResourceExhausted` maps to `MemoryError`; type problems raise
+    `TypeError`.
+  - The zero-copy hook is `vectorforge._vectorforge._last_input_address()`.
+  - Thread pools are cached per thread count. The module does not declare free-threading support.
+  - Measured: a batch search from Python runs at the C++ speed (9 717 vs 9 657 QPS); a per-query
+    Python call adds 6.3 µs. Checked locally on CPython 3.14 (Windows, MSVC) and 3.12 (Linux, GCC 13).
 
 ### Phase 9 — Benchmark suite and results
 

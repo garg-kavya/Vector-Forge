@@ -41,6 +41,7 @@
 #include "simd/kernels.hpp"
 #include "storage/tombstones.hpp"
 #include "storage/vector_store.hpp"
+#include "util/dataset_io.hpp"
 #include "util/recall.hpp"
 #include "util/synthetic.hpp"
 #include "util/timer.hpp"
@@ -85,6 +86,7 @@ struct Options {
   // ingest / build: HNSW insert synchronisation, and threads used by the ingest writer
   std::string concurrency = "concurrent";
   std::uint32_t writer_threads = 1;
+  std::string queries_file;  // threads: .npy/.fvecs queries instead of generated ones
 };
 
 vf::Concurrency concurrency_of(const Options& o) {
@@ -289,8 +291,21 @@ int run_threads(const Options& o) {
   const vf::Collection& c = *loaded.value();
   Options qo = o;
   qo.dim = c.config().dim;
-  const std::vector<float> queries = generate(qo, o.queries, o.seed + 1);
-  const auto nq = static_cast<std::size_t>(o.queries);
+  std::vector<float> queries;
+  std::size_t nq = static_cast<std::size_t>(o.queries);
+  if (o.queries_file.empty()) {
+    queries = generate(qo, o.queries, o.seed + 1);
+  } else {
+    vf::Result<d::Matrix<float>> file = d::read_float_matrix(o.queries_file);
+    if (!file.ok() || file.value().cols != c.config().dim) {
+      std::cerr << "cannot use --queries-file: "
+                << (file.ok() ? std::string("dimension mismatch") : file.status().to_string())
+                << '\n';
+      return 1;
+    }
+    nq = static_cast<std::size_t>(file.value().rows);
+    queries = std::move(file.value().data);
+  }
   vf::SearchParams params;
   params.k = o.k;
   params.ef_search = o.ef_search.front();
@@ -559,6 +574,7 @@ int run(int argc, char** argv) {
       ->check(CLI::IsMember({"sweep", "save", "load", "threads", "ingest", "build"}));
   app.add_option("--concurrency", o.concurrency, "ingest/build: coarse | concurrent")
       ->check(CLI::IsMember({"coarse", "concurrent"}));
+  app.add_option("--queries-file", o.queries_file, "threads: query vectors (.npy or .fvecs)");
   app.add_option("--writer-threads", o.writer_threads, "ingest: threads of the add_batch writer")
       ->check(CLI::Range(1U, 256U));
   app.add_option("--threads", o.threads, "threads: thread counts")->delimiter(',');

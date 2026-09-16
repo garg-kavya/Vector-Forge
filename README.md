@@ -5,7 +5,7 @@ VectorForge is a C++20 vector similarity search engine built from first principl
 distance kernels, a thread pool, a versioned on-disk format with memory-mapped vectors, an HTTP API
 and Python bindings.
 
-> **Status:** early development — Phases 0–7 of the [engineering design](docs/DESIGN.md) are
+> **Status:** early development — Phases 0–8 of the [engineering design](docs/DESIGN.md) are
 > complete: toolchain; core types, deterministic RNG, scalar distance kernels, vector storage; exact
 > (Flat) search, dataset I/O and the `vectorforge gen-data` / `ground-truth` CLI; single-threaded
 > HNSW approximate search ([docs/hnsw.md](docs/hnsw.md)); checksummed, crash-safe persistence with
@@ -14,7 +14,8 @@ and Python bindings.
 > ([docs/simd.md](docs/simd.md)); a thread pool, parallel batch search and a fully thread-safe
 > `Collection` with a fair reader/writer lock and concurrent HNSW insertion
 > ([docs/concurrency.md](docs/concurrency.md)); an HTTP/JSON server over a catalog of named
-> collections ([docs/http-api.md](docs/http-api.md)). Python bindings are *planned*, not implemented.
+> collections ([docs/http-api.md](docs/http-api.md)); Python bindings
+> ([docs/python-api.md](docs/python-api.md)).
 
 ## Quick start (current API)
 
@@ -61,6 +62,17 @@ curl -X POST localhost:8080/v1/collections/docs/search -H 'Content-Type: applica
 curl -X POST localhost:8080/v1/collections/docs/snapshot   # durable from here on
 ```
 
+```python
+import numpy as np, vectorforge as vf        # pip install ./python
+
+index = vf.Index(dim=128, metric="cosine", M=16, ef_construction=200)
+index.add(np.random.default_rng(0).standard_normal((10_000, 128), dtype=np.float32))
+labels, distances = index.search(np.ones((3, 128), dtype=np.float32), k=5)  # (3, 5) arrays
+index.save("docs.vfidx")
+```
+
+A batch search from Python runs at the speed of the C++ call
+([results](benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_phase8/README.md)).
 The HTTP API ([docs/http-api.md](docs/http-api.md), [OpenAPI](docs/openapi.yaml)) adds about
 0.2 ms per query on loopback, and binary bulk ingestion is ~23× faster than JSON
 ([results](benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_phase7/README.md)).
@@ -108,8 +120,9 @@ environment, in `benchmarks/results/`.
 ## Building
 
 Requirements: CMake ≥ 3.25, Ninja, and a C++20 compiler (MSVC 19.4x+, GCC 13+, Clang 17+).
-GoogleTest, Google Benchmark and CLI11 are fetched automatically (pinned by version and SHA-256); the
-core library has no third-party dependencies.
+GoogleTest, Google Benchmark, CLI11, cpp-httplib and nlohmann/json (server) and pybind11 (in-tree
+Python module) are fetched automatically, pinned by version and SHA-256; the core library has no
+third-party dependencies.
 
 ### Windows (MSVC)
 
@@ -144,18 +157,22 @@ Sanitizer presets: `linux-clang-asan-ubsan`, `linux-clang-tsan`, `linux-clang-fu
 | `VF_NATIVE` | OFF | build for the host CPU (benchmark comparisons only) |
 | `VF_ENABLE_ASSERTS` | OFF | keep internal assertions in optimised builds |
 | `VF_BUILD_FUZZERS` | OFF | libFuzzer targets (Clang; preset `linux-clang-fuzz`) |
+| `VF_BUILD_SERVER` | ON | HTTP server library and `vectorforge serve` |
+| `VF_BUILD_PYTHON` | OFF | build the Python module in-tree (`pip install ./python` is the usual route) |
 
 ## Repository layout
 
 ```
 include/vectorforge/   public headers
 src/                   library implementation (internal headers)
-apps/cli/              vectorforge command-line tool
+apps/cli/              vectorforge command-line tool (including `serve`)
+python/                Python package (pybind11) and its pytest suite
 tests/                 GoogleTest suites
 benchmarks/            micro (Google Benchmark) and macro (vf_bench) benchmarks, committed results
 cmake/                 build modules (warnings, sanitizers, SIMD flags, dependencies)
-tools/                 developer scripts (golden files, fuzzing, ISA leak check)
-docs/                  design document and architecture decision records
+examples/              curl walkthrough, Python quickstart
+tools/                 developer scripts (golden files, fuzzing, ISA leak check, OpenAPI check)
+docs/                  design document, component docs, OpenAPI spec, architecture decision records
 ```
 
 ## License
