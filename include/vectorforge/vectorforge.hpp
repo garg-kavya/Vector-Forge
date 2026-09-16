@@ -2,6 +2,7 @@
 
 // Umbrella header for the VectorForge public API.
 
+#include <vectorforge/catalog.hpp>      // IWYU pragma: export
 #include <vectorforge/collection.hpp>   // IWYU pragma: export
 #include <vectorforge/config.hpp>       // IWYU pragma: export
 #include <vectorforge/distance.hpp>     // IWYU pragma: export

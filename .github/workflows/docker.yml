@@ -1,0 +1,44 @@
+name: Docker
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Build image and smoke test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build
+        run: docker build -t vectorforge:ci .
+      - name: Start
+        run: |
+          docker run -d --name vf -p 127.0.0.1:8080:8080 -e VF_API_KEY=ci-key vectorforge:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8080/readyz && break
+            sleep 1
+          done
+      - name: Smoke test
+        run: bash examples/http/curl_examples.sh http://127.0.0.1:8080 ci-key
+      - name: Graceful stop keeps data
+        run: |
+          docker stop --time 30 vf
+          docker logs vf
+          docker start vf
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8080/readyz && break
+            sleep 1
+          done
+          curl -fsS -H 'Authorization: Bearer ci-key' http://127.0.0.1:8080/v1/collections/docs
+      - name: Logs
+        if: failure()
+        run: docker logs vf

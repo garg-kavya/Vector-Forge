@@ -16,6 +16,10 @@
 
 #include "util/synthetic.hpp"
 
+#if defined(VF_HAVE_SERVER)
+#include "server/server.hpp"
+#endif
+
 namespace vf::cli {
 
 enum class DatasetFormat : std::uint8_t { Npy, Fvecs };
@@ -83,6 +87,21 @@ struct SearchOptions {
 
 // Loads with full checksum verification and checks graph invariants. Returns the first problem.
 [[nodiscard]] Status run_verify(const std::filesystem::path& index, std::ostream& log);
+
+#if defined(VF_HAVE_SERVER)
+struct ServeOptions {
+  std::filesystem::path data_dir;
+  server::ServerConfig server;
+  bool use_mmap = true;
+  bool snapshot_on_exit = false;
+  bool install_signal_handlers = true;
+};
+
+// Serves `data_dir` until SIGINT/SIGTERM or request_serve_stop(); then drains, stops and
+// optionally snapshots every collection.
+[[nodiscard]] Status run_serve(const ServeOptions& options, std::ostream& log);
+void request_serve_stop() noexcept;
+#endif
 
 // Pool giving `threads` threads together with the calling thread (0 = hardware concurrency);
 // nullptr when one thread is requested.

@@ -30,3 +30,10 @@ if(VF_BUILD_CLI)
   target_include_directories(vf_bench PRIVATE ${PROJECT_SOURCE_DIR}/src)
   vf_set_project_options(vf_bench)
 endif()
+
+# HTTP overhead benchmark.
+if(VF_BUILD_CLI AND VF_BUILD_SERVER)
+  add_executable(vf_http_bench macro/http_bench.cpp)
+  target_link_libraries(vf_http_bench PRIVATE vectorforge::server CLI11::CLI11)
+  vf_set_project_options(vf_http_bench)
+endif()

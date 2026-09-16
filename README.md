@@ -5,7 +5,7 @@ VectorForge is a C++20 vector similarity search engine built from first principl
 distance kernels, a thread pool, a versioned on-disk format with memory-mapped vectors, an HTTP API
 and Python bindings.
 
-> **Status:** early development — Phases 0–6b of the [engineering design](docs/DESIGN.md) are
+> **Status:** early development — Phases 0–7 of the [engineering design](docs/DESIGN.md) are
 > complete: toolchain; core types, deterministic RNG, scalar distance kernels, vector storage; exact
 > (Flat) search, dataset I/O and the `vectorforge gen-data` / `ground-truth` CLI; single-threaded
 > HNSW approximate search ([docs/hnsw.md](docs/hnsw.md)); checksummed, crash-safe persistence with
@@ -13,7 +13,8 @@ and Python bindings.
 > ([docs/storage-format.md](docs/storage-format.md)); AVX2 + FMA distance kernels selected at runtime
 > ([docs/simd.md](docs/simd.md)); a thread pool, parallel batch search and a fully thread-safe
 > `Collection` with a fair reader/writer lock and concurrent HNSW insertion
-> ([docs/concurrency.md](docs/concurrency.md)). HTTP and Python are *planned*, not implemented.
+> ([docs/concurrency.md](docs/concurrency.md)); an HTTP/JSON server over a catalog of named
+> collections ([docs/http-api.md](docs/http-api.md)). Python bindings are *planned*, not implemented.
 
 ## Quick start (current API)
 
@@ -48,6 +49,21 @@ vectorforge info   idx.vfidx
 vectorforge verify idx.vfidx
 vectorforge search --index idx.vfidx --queries queries.fvecs --k 10 --ef 100 --gt gt
 ```
+
+```bash
+vectorforge serve --data-dir ./data &          # 127.0.0.1:8080; docker compose up works too
+curl -X POST localhost:8080/v1/collections -H 'Content-Type: application/json' \
+  -d '{"name": "docs", "dim": 3, "metric": "cosine"}'
+curl -X POST localhost:8080/v1/collections/docs/vectors -H 'Content-Type: application/json' \
+  -d '{"vectors": [{"id": 42, "vector": [0.1, 0.2, 0.3]}]}'
+curl -X POST localhost:8080/v1/collections/docs/search -H 'Content-Type: application/json' \
+  -d '{"vector": [0.1, 0.2, 0.25], "k": 5}'
+curl -X POST localhost:8080/v1/collections/docs/snapshot   # durable from here on
+```
+
+The HTTP API ([docs/http-api.md](docs/http-api.md), [OpenAPI](docs/openapi.yaml)) adds about
+0.2 ms per query on loopback, and binary bulk ingestion is ~23× faster than JSON
+([results](benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_phase7/README.md)).
 
 The pipeline reads TEXMEX (SIFT-format) `.fvecs` vectors and `.ivecs` ground truth
 (`--gt groundtruth.ivecs`); it is tested with generated files of that format, not with the SIFT1M

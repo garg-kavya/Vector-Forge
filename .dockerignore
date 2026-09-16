@@ -1,0 +1,11 @@
+out/
+build/
+.git/
+.vs/
+.vscode/
+.idea/
+**/__pycache__/
+benchmarks/results/
+*.vfidx
+*.npy
+*.fvecs

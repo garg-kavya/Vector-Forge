@@ -139,6 +139,36 @@ add_test(NAME simd.load_reports_invalid_request
 set_tests_properties(simd.load_reports_invalid_request
                      PROPERTIES ENVIRONMENT "VF_SIMD=fastest" LABELS persistence)
 
+if(VF_BUILD_SERVER)
+  add_library(vf_fuzz_json_request OBJECT fuzz/fuzz_json_request.cpp)
+  target_link_libraries(vf_fuzz_json_request PRIVATE vectorforge::server)
+  vf_set_project_options(vf_fuzz_json_request)
+  add_executable(vf_fuzz_json_replay fuzz/replay_main.cpp $<TARGET_OBJECTS:vf_fuzz_json_request>)
+  target_link_libraries(vf_fuzz_json_replay PRIVATE vectorforge::server)
+  vf_set_project_options(vf_fuzz_json_replay)
+  add_test(NAME fuzz.json_request_replay
+           COMMAND vf_fuzz_json_replay ${CMAKE_CURRENT_SOURCE_DIR}/data/json_corpus)
+  set_tests_properties(fuzz.json_request_replay PROPERTIES LABELS http)
+  if(VF_BUILD_FUZZERS)
+    add_executable(vf_fuzz_json_request_libfuzzer $<TARGET_OBJECTS:vf_fuzz_json_request>)
+    target_link_libraries(vf_fuzz_json_request_libfuzzer PRIVATE vectorforge::server)
+    target_link_options(vf_fuzz_json_request_libfuzzer PRIVATE -fsanitize=fuzzer)
+  endif()
+
+  # HTTP tests: a server on a free loopback port per test.
+  add_executable(vf_http_tests
+    http/test_limits.cpp
+    http/test_routes.cpp
+    http/test_shutdown.cpp
+  )
+  target_link_libraries(vf_http_tests PRIVATE vectorforge::server GTest::gtest_main)
+  target_include_directories(vf_http_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  vf_set_project_options(vf_http_tests)
+  gtest_discover_tests(vf_http_tests
+    DISCOVERY_MODE PRE_TEST
+    PROPERTIES LABELS http)
+endif()
+
 if(VF_BUILD_FUZZERS)
   add_executable(vf_fuzz_index_reader_libfuzzer $<TARGET_OBJECTS:vf_fuzz_index_reader>)
   target_link_libraries(vf_fuzz_index_reader_libfuzzer PRIVATE vectorforge::vectorforge)
@@ -147,6 +177,7 @@ endif()
 
 # Integration tests ---------------------------------------------------------------------------
 add_executable(vf_index_integration_tests
+  integration/test_catalog.cpp
   integration/test_hnsw_recall.cpp
 )
 target_link_libraries(vf_index_integration_tests PRIVATE vectorforge::vectorforge GTest::gtest_main)

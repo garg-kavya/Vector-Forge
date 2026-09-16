@@ -2026,6 +2026,29 @@ flowchart LR
 - **Tests:** §15.3 HTTP entries; catalog restart recovery (create, insert, snapshot, restart, search).
 - **Benchmarks:** end-to-end search latency via HTTP vs in-process (overhead breakdown); JSON vs binary bulk ingestion.
 - **Acceptance:** all routes tested; OpenAPI matches; Docker image builds and passes smoke test in CI; TSan clean on http label.
+- **Implementation notes (as built):** the complete description is `docs/http-api.md`; results in
+  `benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_phase7`.
+  - cpp-httplib 0.54.1 is used as a header-only target (`vf_httplib`, no TLS/compression; its own
+    CMake project is not configured); nlohmann/json 3.12.0. Both pinned by SHA-256.
+    `VF_BUILD_SERVER` is ON by default.
+  - Routes live in `src/server/server.cpp` (one file instead of `routes_*.cpp`); decoding and
+    encoding in `json_codec.cpp`; limits in `limits.hpp`. Every handler runs through one wrapper
+    (request id, readiness, bearer check, in-flight count, exception mapping).
+  - Additions to the plan: a JSON nesting-depth check before parsing (the recursive parser could
+    otherwise exhaust the stack), `LIMIT_EXCEEDED` (422) for server caps and 507 for
+    `ResourceExhausted`/out of memory, exclusive port binding (`SO_EXCLUSIVEADDRUSE` on Windows,
+    no `SO_REUSEPORT` on POSIX: cpp-httplib's default let a second server bind the same port),
+    `index.concurrency` in the create request, `vectorforge serve --list-routes` for the OpenAPI
+    check (`tools/check_openapi.py`, no YAML library needed).
+  - Catalog: `config.json` is written with the library's flat JSON scanner (the core stays
+    dependency-free); creation goes through `.<name>.creating` + rename; `drop()` writes a
+    `DROPPED` marker and deletes files when the last `shared_ptr` is released (even after the
+    Catalog is gone); a dropped name that is still in use answers `Unavailable`.
+    `snapshot()` returns generation and file size. There is no `catalog.json`.
+  - `vectors:bulk` takes `?upsert=true`. `drain_timeout` bounds how long `stop()` waits for
+    handlers; the socket is closed afterwards.
+  - No Docker engine was available on the development machine; the image is built and smoke-tested
+    only by `.github/workflows/docker.yml`. `/metrics` is left to Phase 10.
 
 ### Phase 8 — Python bindings
 

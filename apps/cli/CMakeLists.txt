@@ -11,6 +11,11 @@ target_include_directories(vf_cli_commands
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
   PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(vf_cli_commands PUBLIC vectorforge::vectorforge)
+if(VF_BUILD_SERVER)
+  target_sources(vf_cli_commands PRIVATE cmd_serve.cpp)
+  target_link_libraries(vf_cli_commands PUBLIC vectorforge::server)
+  target_compile_definitions(vf_cli_commands PUBLIC VF_HAVE_SERVER=1)
+endif()
 vf_set_project_options(vf_cli_commands)
 
 add_executable(vectorforge_cli main.cpp)

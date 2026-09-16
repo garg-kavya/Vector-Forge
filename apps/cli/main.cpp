@@ -1,6 +1,9 @@
 // vectorforge command-line interface.
 
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -26,6 +29,25 @@ int report(const vf::Status& status) {
 }
 
 int run(int argc, char** argv);
+
+#if defined(VF_HAVE_SERVER)
+std::string environment(const char* name) {
+#if defined(_MSC_VER)
+  char* value = nullptr;
+  std::size_t length = 0;
+  if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
+    return {};
+  }
+  std::string out(value);
+  std::free(value);  // NOLINT(cppcoreguidelines-no-malloc): _dupenv_s allocates with malloc.
+  return out;
+#else
+  const char* value =
+      std::getenv(name);  // NOLINT(concurrency-mt-unsafe): read before threads start
+  return value == nullptr ? std::string{} : std::string(value);
+#endif
+}
+#endif
 
 }  // namespace
 
@@ -164,6 +186,50 @@ int run(int argc, char** argv) {
       ->required()
       ->check(CLI::ExistingFile);
 
+#if defined(VF_HAVE_SERVER)
+  // serve -------------------------------------------------------------------------------------
+  vf::cli::ServeOptions serve;
+  bool serve_list_routes = false;
+  bool serve_no_mmap = false;
+  std::size_t serve_max_body_mb = serve.server.limits.max_body_bytes >> 20U;
+  std::uint32_t serve_drain_seconds = 10;
+  CLI::App* serve_cmd = app.add_subcommand("serve", "Serve a catalog directory over HTTP");
+  serve_cmd->add_option("--data-dir", serve.data_dir, "Catalog directory (created if missing)");
+  serve_cmd->add_option("--host", serve.server.host, "Listen address")->capture_default_str();
+  serve_cmd->add_option("--port", serve.server.port, "Listen port (0 = any free port)")
+      ->capture_default_str()
+      ->check(CLI::Range(0, 65535));
+  serve_cmd->add_option("--http-threads", serve.server.http_threads,
+                        "Connection threads (0 = hardware threads)");
+  serve_cmd->add_option("--threads", serve.server.compute_threads,
+                        "Compute threads for batch requests (0 = hardware threads)");
+  serve_cmd->add_option("--api-key", serve.server.api_key,
+                        "Require this bearer token on /v1 routes (default: $VF_API_KEY)");
+  serve_cmd->add_option("--max-body-mb", serve_max_body_mb, "Request body limit (MiB)")
+      ->capture_default_str()
+      ->check(CLI::Range(1, 4096));
+  serve_cmd->add_option("--max-batch", serve.server.limits.max_batch, "Vectors per request")
+      ->capture_default_str()
+      ->check(CLI::PositiveNumber);
+  serve_cmd->add_option("--max-k", serve.server.limits.max_k, "Largest k")
+      ->capture_default_str()
+      ->check(CLI::Range(1U, vf::SearchParams::kMaxK));
+  serve_cmd->add_option("--max-ef", serve.server.limits.max_ef, "Largest ef_search")
+      ->capture_default_str()
+      ->check(CLI::Range(1U, vf::HnswParams::kMaxEf));
+  serve_cmd->add_option("--max-dim", serve.server.limits.max_dim, "Largest collection dimension")
+      ->capture_default_str()
+      ->check(CLI::Range(1U, vf::kMaxDim));
+  serve_cmd
+      ->add_option("--drain-seconds", serve_drain_seconds,
+                   "Shutdown waits this long for requests in progress")
+      ->capture_default_str();
+  serve_cmd->add_flag("--no-mmap", serve_no_mmap, "Load snapshots into memory");
+  serve_cmd->add_flag("--snapshot-on-exit", serve.snapshot_on_exit,
+                      "Snapshot every collection after a graceful shutdown");
+  serve_cmd->add_flag("--list-routes", serve_list_routes, "Print the route table and exit");
+#endif
+
   CLI11_PARSE(app, argc, argv);
 
   // A VF_SIMD request this build or CPU cannot honour is an error for every command.
@@ -171,6 +237,27 @@ int run(int argc, char** argv) {
     return report(simd);
   }
 
+#if defined(VF_HAVE_SERVER)
+  if (serve_cmd->parsed()) {
+    if (serve_list_routes) {
+      for (const vf::server::RouteInfo& route : vf::server::Server::routes()) {
+        std::cout << route.method << ' ' << route.path << '\n';
+      }
+      return 0;
+    }
+    if (serve.data_dir.empty()) {
+      std::cerr << "error: --data-dir is required\n";
+      return 2;
+    }
+    if (serve.server.api_key.empty()) {
+      serve.server.api_key = environment("VF_API_KEY");
+    }
+    serve.server.limits.max_body_bytes = serve_max_body_mb << 20U;
+    serve.server.drain_timeout = std::chrono::seconds(serve_drain_seconds);
+    serve.use_mmap = !serve_no_mmap;
+    return report(vf::cli::run_serve(serve, std::cout));
+  }
+#endif
   if (build_cmd->parsed()) {
     const vf::Result<vf::Metric> metric = vf::parse_metric(build_metric);
     const vf::Result<vf::IndexType> index = vf::parse_index_type(build_index);

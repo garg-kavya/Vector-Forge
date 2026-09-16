@@ -31,7 +31,7 @@ jobs:
       - name: Configure (compile_commands.json)
         run: cmake --preset linux-clang-release -DCMAKE_CXX_COMPILER=clang++-18
       - name: Build generated headers
-        run: cmake --build --preset linux-clang-release --target vectorforge vf_cli_commands
+        run: cmake --build --preset linux-clang-release --target vectorforge vf_server vf_cli_commands
       - name: Run clang-tidy on library and CLI sources
         # Win32-only sources are not in the Linux compilation database (no windows.h).
         run: |

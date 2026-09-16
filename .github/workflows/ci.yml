@@ -65,6 +65,20 @@ jobs:
       - name: ISA leak check
         if: matrix.simd_checks
         run: python3 tools/check_isa_leak.py out/build/${{ matrix.preset }}
+      - name: OpenAPI matches the served routes
+        if: matrix.preset == 'linux-gcc-release'
+        run: python3 tools/check_openapi.py out/build/${{ matrix.preset }}/apps/cli/vectorforge docs/openapi.yaml
+      - name: Serve, walk through the API, stop with SIGTERM
+        if: matrix.preset == 'linux-gcc-release'
+        run: |
+          data=$(mktemp -d)
+          out/build/${{ matrix.preset }}/apps/cli/vectorforge serve --data-dir "$data" --port 18080 --snapshot-on-exit &
+          pid=$!
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/readyz && break; sleep 0.5; done
+          bash examples/http/curl_examples.sh http://127.0.0.1:18080
+          kill -TERM "$pid"
+          wait "$pid"
+          test -f "$data/collections/docs/MANIFEST"
 
   fuzz-smoke:
     name: Linux Clang 18 index reader fuzz (2 min)
@@ -78,9 +92,11 @@ jobs:
       - name: Build fuzzer
         run: |
           cmake --preset linux-clang-fuzz -DCMAKE_CXX_COMPILER=clang++-18
-          cmake --build --preset linux-clang-fuzz --target vf_fuzz_index_reader_libfuzzer
-      - name: Fuzz
+          cmake --build --preset linux-clang-fuzz --target vf_fuzz_index_reader_libfuzzer vf_fuzz_json_request_libfuzzer
+      - name: Fuzz index reader
         run: tools/fuzz_index_reader.sh out/build/linux-clang-fuzz 120
+      - name: Fuzz HTTP request decoders
+        run: tools/fuzz_json_request.sh out/build/linux-clang-fuzz 60
 
   windows:
     name: Windows MSVC ${{ matrix.preset }}

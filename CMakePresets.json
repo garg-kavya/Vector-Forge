@@ -13,6 +13,7 @@
         "VF_BUILD_TESTS": "ON",
         "VF_BUILD_BENCHMARKS": "ON",
         "VF_BUILD_CLI": "ON",
+        "VF_BUILD_SERVER": "ON",
         "VF_WARNINGS_AS_ERRORS": "ON"
       }
     },

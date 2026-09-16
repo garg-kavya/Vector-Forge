@@ -1,0 +1,357 @@
+openapi: 3.1.0
+info:
+  title: VectorForge HTTP API
+  version: 0.1.0
+  description: >
+    Vector similarity search over named collections. See docs/http-api.md for semantics, limits
+    and examples. Every response carries an X-Request-Id header (echoed from the request when it
+    is 1-128 printable ASCII characters, generated otherwise).
+servers:
+  - url: http://127.0.0.1:8080
+security:
+  - {}
+  - bearer: []
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: Required on /v1 routes when the server runs with --api-key.
+  parameters:
+    name:
+      name: name
+      in: path
+      required: true
+      schema: {type: string, pattern: '^[A-Za-z0-9_-]{1,64}$'}
+    id:
+      name: id
+      in: path
+      required: true
+      schema: {type: integer, minimum: 0, maximum: 18446744073709551614}
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [INVALID_ARGUMENT, DIMENSION_MISMATCH, MALFORMED_JSON, NOT_FOUND,
+                     ALREADY_EXISTS, FAILED_PRECONDITION, UNAUTHORIZED, METHOD_NOT_ALLOWED,
+                     PAYLOAD_TOO_LARGE, UNSUPPORTED_MEDIA_TYPE, LIMIT_EXCEEDED,
+                     RESOURCE_EXHAUSTED, UNAVAILABLE, CORRUPT_DATA, UNSUPPORTED_VERSION,
+                     IO_ERROR, INTERNAL]
+            message: {type: string}
+    Vector:
+      type: array
+      items: {type: number}
+    Index:
+      type: object
+      additionalProperties: false
+      properties:
+        type: {type: string, enum: [flat, hnsw], default: hnsw}
+        M: {type: integer, minimum: 2, maximum: 512, default: 16}
+        ef_construction: {type: integer, default: 200}
+        ef_search: {type: integer, default: 50}
+        max_level: {type: integer, minimum: 1, maximum: 32, default: 16}
+        seed: {type: integer, minimum: 0}
+        concurrency: {type: string, enum: [coarse, concurrent], default: concurrent}
+    CreateCollection:
+      type: object
+      additionalProperties: false
+      required: [name, dim]
+      properties:
+        name: {type: string, pattern: '^[A-Za-z0-9_-]{1,64}$'}
+        dim: {type: integer, minimum: 1}
+        metric: {type: string, enum: [l2, ip, inner_product, cosine], default: l2}
+        normalize: {type: boolean, default: false}
+        index: {$ref: '#/components/schemas/Index'}
+    Collection:
+      type: object
+      required: [name, dim, metric, normalize, index, count]
+      properties:
+        name: {type: string}
+        dim: {type: integer}
+        metric: {type: string, enum: [l2, ip, cosine]}
+        normalize: {type: boolean}
+        index: {$ref: '#/components/schemas/Index'}
+        count: {type: integer}
+    Insert:
+      type: object
+      additionalProperties: false
+      required: [vectors]
+      properties:
+        upsert: {type: boolean, default: false}
+        vectors:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, vector]
+            properties:
+              id: {type: integer, minimum: 0, maximum: 18446744073709551614}
+              vector: {$ref: '#/components/schemas/Vector'}
+    Inserted:
+      type: object
+      required: [inserted]
+      properties:
+        inserted: {type: integer}
+    Neighbor:
+      type: object
+      required: [id, distance]
+      properties:
+        id: {type: integer}
+        distance: {type: number}
+    Search:
+      type: object
+      additionalProperties: false
+      required: [vector]
+      properties:
+        vector: {$ref: '#/components/schemas/Vector'}
+        k: {type: integer, minimum: 1, default: 10}
+        ef_search: {type: integer, minimum: 1}
+    SearchBatch:
+      type: object
+      additionalProperties: false
+      required: [vectors]
+      properties:
+        vectors:
+          type: array
+          items: {$ref: '#/components/schemas/Vector'}
+        k: {type: integer, minimum: 1, default: 10}
+        ef_search: {type: integer, minimum: 1}
+  responses:
+    Error:
+      description: Error (see docs/http-api.md for the status code mapping)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+      security: [{}]
+      responses:
+        '200': {description: Process is up}
+  /readyz:
+    get:
+      summary: Readiness (503 while shutting down)
+      security: [{}]
+      responses:
+        '200': {description: Ready}
+        '503': {$ref: '#/components/responses/Error'}
+  /v1/status:
+    get:
+      summary: Version, build and runtime information
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: {type: string}
+                  git_sha: {type: string}
+                  build_type: {type: string}
+                  compiler: {type: string}
+                  simd: {type: string}
+                  uptime_s: {type: number}
+                  collections: {type: integer}
+                  http_threads: {type: integer}
+                  compute_threads: {type: integer}
+        default: {$ref: '#/components/responses/Error'}
+  /v1/collections:
+    post:
+      summary: Create a collection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateCollection'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Collection'}
+        default: {$ref: '#/components/responses/Error'}
+    get:
+      summary: List collections
+      responses:
+        '200':
+          description: Collections in name order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  collections:
+                    type: array
+                    items: {$ref: '#/components/schemas/Collection'}
+        default: {$ref: '#/components/responses/Error'}
+  /v1/collections/{name}:
+    parameters: [{$ref: '#/components/parameters/name'}]
+    get:
+      summary: Configuration and size
+      responses:
+        '200':
+          description: Collection
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Collection'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      summary: Drop a collection (files are removed when running requests finish)
+      responses:
+        '200': {description: Dropped}
+        default: {$ref: '#/components/responses/Error'}
+  /v1/collections/{name}/vectors:
+    parameters: [{$ref: '#/components/parameters/name'}]
+    post:
+      summary: Insert vectors (JSON)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Insert'}
+      responses:
+        '200':
+          description: Inserted
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Inserted'}
+        default: {$ref: '#/components/responses/Error'}
+  /v1/collections/{name}/vectors:bulk:
+    parameters:
+      - {$ref: '#/components/parameters/name'}
+      - name: upsert
+        in: query
+        schema: {type: boolean, default: false}
+    post:
+      summary: Insert vectors (binary)
+      description: >
+        Body: "VFB1", u32 dim, u64 count, count x u64 ids, count x dim x f32, all little-endian.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: {type: string, format: binary}
+      responses:
+        '200':
+          description: Inserted
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Inserted'}
+        default: {$ref: '#/components/responses/Error'}
+  /v1/collections/{name}/vectors/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/name'}
+      - {$ref: '#/components/parameters/id'}
+    get:
+      summary: Fetch a stored vector (normalised for normalised collections)
+      responses:
+        '200':
+          description: Vector
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: {type: integer}
+                  vector: {$ref: '#/components/schemas/Vector'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      summary: Remove a vector
+      responses:
+        '200': {description: Deleted}
+        default: {$ref: '#/components/responses/Error'}
+  /v1/collections/{name}/search:
+    parameters: [{$ref: '#/components/parameters/name'}]
+    post:
+      summary: k nearest neighbours of one vector
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Search'}
+      responses:
+        '200':
+          description: Neighbours by ascending distance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items: {$ref: '#/components/schemas/Neighbor'}
+                  took_ms: {type: number}
+        default: {$ref: '#/components/responses/Error'}
+  /v1/collections/{name}/search:batch:
+    parameters: [{$ref: '#/components/parameters/name'}]
+    post:
+      summary: k nearest neighbours of several vectors
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SearchBatch'}
+      responses:
+        '200':
+          description: One neighbour list per query
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: array
+                      items: {$ref: '#/components/schemas/Neighbor'}
+                  took_ms: {type: number}
+        default: {$ref: '#/components/responses/Error'}
+  /v1/collections/{name}/stats:
+    parameters: [{$ref: '#/components/parameters/name'}]
+    get:
+      summary: Counts and memory breakdown
+      responses:
+        '200': {description: Statistics}
+        default: {$ref: '#/components/responses/Error'}
+  /v1/collections/{name}/snapshot:
+    parameters: [{$ref: '#/components/parameters/name'}]
+    post:
+      summary: Persist a new generation
+      responses:
+        '200':
+          description: Snapshot written
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generation: {type: integer}
+                  bytes: {type: integer}
+                  took_ms: {type: number}
+        default: {$ref: '#/components/responses/Error'}
+  /v1/collections/{name}/compact:
+    parameters: [{$ref: '#/components/parameters/name'}]
+    post:
+      summary: Rebuild without removed vectors
+      responses:
+        '200':
+          description: Compacted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows_before: {type: integer}
+                  removed_rows: {type: integer}
+                  rows_after: {type: integer}
+                  took_ms: {type: number}
+        default: {$ref: '#/components/responses/Error'}

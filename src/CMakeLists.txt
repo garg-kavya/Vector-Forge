@@ -1,4 +1,5 @@
 set(VF_CORE_SOURCES
+  collection/catalog.cpp
   collection/collection.cpp
   collection/index_reader.cpp
   collection/index_writer.cpp

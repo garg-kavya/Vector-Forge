@@ -96,6 +96,20 @@ All notable changes to this project are documented here. The format follows
   parallel ingestion (stress label), allocation failure injection in both modes. `vf_bench`
   `build` scenario and `--concurrency` / `--writer-threads` for `ingest`. ADR-0003.
 
+- Phase 7: HTTP API. `vf::Catalog` (named collections under a data directory: create, get, list,
+  drop with deferred file deletion, generation snapshots, restart recovery, crash-safe creation
+  and drops). Server library `vf_server` (cpp-httplib 0.54.1, nlohmann/json 3.12.0, pinned) with
+  16 routes (health, readiness, status, collections, vectors, binary bulk insert, search, batch
+  search, stats, snapshot, compact), strict request decoding, stable JSON error codes and HTTP
+  status mapping, request ids, optional bearer token (constant-time comparison), body/batch/k/ef/
+  dim limits, JSON depth limit, exclusive port binding, graceful drain. `vectorforge serve`
+  (signals and Windows console events, `--snapshot-on-exit`, `VF_API_KEY`, `--list-routes`).
+  `docs/http-api.md`, `docs/openapi.yaml` (checked against the route table in CI),
+  `examples/http/curl_examples.sh`, Dockerfile (non-root), docker-compose, Docker CI workflow.
+  Tests: every route against the library, error mapping, limits, authentication, restart from a
+  snapshot, drain on stop, drop while in use, concurrent clients, catalog recovery and damaged
+  files; JSON request fuzz target (replay test everywhere, libFuzzer in CI). `vf_http_bench`.
+
 - Fault-injection tests (`test_exception_safety`): every allocation of every insert fails in turn;
   failed inserts must leave collections unchanged and fully searchable. Concurrent-read test
   (`vf_concurrency_tests`) for the const-member thread-safety contract, clean under TSan.

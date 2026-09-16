@@ -1,0 +1,20 @@
+# Local single-node deployment: docker compose up --build
+services:
+  vectorforge:
+    build: .
+    image: vectorforge:local
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - vf-data:/data
+    environment:
+      # Uncomment to require "Authorization: Bearer <key>" on /v1 routes.
+      # VF_API_KEY: change-me
+      VF_SIMD: auto
+    # SIGTERM starts a graceful shutdown; allow in-flight requests and the exit snapshot to finish.
+    stop_grace_period: 60s
+    command: ["--snapshot-on-exit"]
+    restart: unless-stopped
+
+volumes:
+  vf-data:
