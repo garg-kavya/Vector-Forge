@@ -61,22 +61,17 @@ jobs:
           path: dist/
 
   wheels:
-    name: Wheels (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, windows-2022]
+    name: Wheels (manylinux)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # cibuildwheel needs a newer Python than the Windows runner's default.
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Build wheels
         env:
           CIBW_BUILD: "cp312-* cp313-* cp314-*"
-          CIBW_SKIP: "*-musllinux_* *-win32 *_i686"
+          CIBW_SKIP: "*-musllinux_* *_i686"
           CIBW_ARCHS: auto64
           CIBW_TEST_REQUIRES: pytest
           CIBW_TEST_COMMAND: pytest -q {project}/python/tests
@@ -85,7 +80,36 @@ jobs:
           python -m cibuildwheel python --output-dir wheelhouse
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: wheels-${{ matrix.os }}
+          name: wheels-linux
+          path: wheelhouse/*.whl
+
+  # Windows wheels are built like the Python workflow builds them (MSVC developer shell,
+  # pip wheel), one CPython version per job; Windows wheels need no repair step.
+  wheels-windows:
+    name: Wheel (CPython ${{ matrix.python }}, windows-2022)
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+      - name: Build wheel
+        run: python -m pip wheel ./python --no-deps -w wheelhouse
+      - name: Test wheel
+        shell: bash
+        run: |
+          python -m pip install wheelhouse/*.whl pytest
+          cd "$RUNNER_TEMP" && python -m pytest -q "$GITHUB_WORKSPACE/python/tests"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wheels-windows-${{ matrix.python }}
           path: wheelhouse/*.whl
 
   image:
@@ -121,7 +145,7 @@ jobs:
 
   publish:
     name: GitHub release
-    needs: [cli, wheels, image]
+    needs: [cli, wheels, wheels-windows, image]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
