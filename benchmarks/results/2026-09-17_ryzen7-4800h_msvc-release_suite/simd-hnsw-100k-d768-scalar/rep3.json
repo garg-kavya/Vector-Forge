@@ -1,0 +1,124 @@
+{
+ "schema": 1,
+ "suite": "hnsw-sweep-minimal",
+ "git": {
+  "sha": "ceff91efdfdc-dirty"
+ },
+ "machine": {
+  "cpu": "AMD Ryzen 7 4800H with Radeon Graphics"
+ },
+ "build": {
+  "compiler": "MSVC 19.50.35728.0",
+  "type": "Release",
+  "simd_tier": "scalar",
+  "kernel_table": "scalar"
+ },
+ "dataset": {
+  "distribution": "gmm",
+  "n": 100000,
+  "queries": 1000,
+  "dim": 768,
+  "metric": "l2",
+  "clusters": 100,
+  "spread": 0.1,
+  "seed": 1
+ },
+ "params": {
+  "index": "hnsw",
+  "M": 16,
+  "ef_construction": 200,
+  "k": 10,
+  "selection": "heuristic",
+  "repair_orphans": true,
+  "prefetch": true,
+  "index_file": true,
+  "threads": 1
+ },
+ "build_result": {
+  "seconds": 0,
+  "distance_computations": 0,
+  "orphan_repairs": 0,
+  "orphans_unrepaired": 0,
+  "index_bytes": 18481152,
+  "invariants_ok": true,
+  "unreachable_level0": 1,
+  "peak_rss_bytes": 966406144
+ },
+ "flat": {
+  "seconds": 54.784,
+  "qps": 18.2535,
+  "mean_latency_us": 54784
+ },
+ "sweep": [
+  {
+   "ef_search": 16,
+   "recall_at_k": 0.7396,
+   "recall_min": 0,
+   "qps": 2899.5,
+   "latency_us": {
+    "p50": 344.2,
+    "p95": 395.4,
+    "p99": 424.5,
+    "mean": 344.887,
+    "max": 633.1
+   },
+   "dist_comps_mean": 484.221
+  },
+  {
+   "ef_search": 32,
+   "recall_at_k": 0.8875,
+   "recall_min": 0,
+   "qps": 2063.98,
+   "latency_us": {
+    "p50": 481.8,
+    "p95": 531.2,
+    "p99": 560,
+    "mean": 484.502,
+    "max": 861.4
+   },
+   "dist_comps_mean": 668.698
+  },
+  {
+   "ef_search": 64,
+   "recall_at_k": 0.9665,
+   "recall_min": 0,
+   "qps": 1528.9,
+   "latency_us": {
+    "p50": 649.2,
+    "p95": 698.1,
+    "p99": 837.2,
+    "mean": 654.067,
+    "max": 1172.7
+   },
+   "dist_comps_mean": 881.106
+  },
+  {
+   "ef_search": 128,
+   "recall_at_k": 0.9907,
+   "recall_min": 0,
+   "qps": 1238.93,
+   "latency_us": {
+    "p50": 798.5,
+    "p95": 873.2,
+    "p99": 1011.6,
+    "mean": 807.151,
+    "max": 1702.4
+   },
+   "dist_comps_mean": 1043.01
+  },
+  {
+   "ef_search": 256,
+   "recall_at_k": 0.9935,
+   "recall_min": 0,
+   "qps": 1102.87,
+   "latency_us": {
+    "p50": 898.5,
+    "p95": 967.9,
+    "p99": 1151.4,
+    "mean": 906.725,
+    "max": 1843.4
+   },
+   "dist_comps_mean": 1115
+  }
+ ]
+}

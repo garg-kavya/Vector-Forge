@@ -27,6 +27,7 @@ namespace vf::bench {
 struct ProcessMemory {
   std::uint64_t rss_bytes = 0;
   std::uint64_t private_bytes = 0;
+  std::uint64_t peak_rss_bytes = 0;  // Windows: PeakWorkingSetSize; Linux: VmHWM
 };
 
 inline ProcessMemory process_memory() {
@@ -39,6 +40,7 @@ inline ProcessMemory process_memory() {
                               counters.cb) != 0) {
     m.rss_bytes = counters.WorkingSetSize;
     m.private_bytes = counters.PrivateUsage;
+    m.peak_rss_bytes = counters.PeakWorkingSetSize;
   }
 #else
   std::ifstream status("/proc/self/status");
@@ -52,6 +54,8 @@ inline ProcessMemory process_memory() {
       m.rss_bytes = kib * 1024;
     } else if (key == "RssAnon:") {
       m.private_bytes = kib * 1024;
+    } else if (key == "VmHWM:") {
+      m.peak_rss_bytes = kib * 1024;
     }
   }
 #endif

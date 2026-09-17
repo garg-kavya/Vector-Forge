@@ -1,0 +1,24 @@
+{
+  "suite": "smoke",
+  "description": "Tiny version of every vf_bench scenario (CI: checks that the harness and the scenarios run and produce valid results; the numbers mean nothing).",
+  "repeat": 1,
+  "runs": [
+    {"id": "exact-smoke", "suite": "exact", "tool": "vf_bench",
+     "args": ["--scenario", "exact", "--n", "2000", "--dim", "16", "--queries", "20", "--threads", "1,2", "--repeat", "2", "--out", "{out}"]},
+    {"id": "sweep-smoke", "suite": "hnsw-sweep", "tool": "vf_bench",
+     "args": ["--n", "2000", "--dim", "16", "--queries", "20", "--M", "8", "--ef-construction", "40", "--ef-search", "10,40", "--out", "{out}"]},
+    {"id": "build-smoke", "suite": "threads", "tool": "vf_bench",
+     "args": ["--scenario", "build", "--n", "2000", "--dim", "16", "--queries", "20", "--threads", "1,2", "--ef-search", "16", "--batch", "500", "--out", "{out}"]},
+    {"id": "save-smoke", "suite": "storage", "tool": "vf_bench",
+     "args": ["--scenario", "save", "--n", "2000", "--dim", "16", "--index", "hnsw", "--build-threads", "2", "--index-file", "{work}/smoke.vfidx", "--out", "{out}"]},
+    {"id": "load-smoke-{mode}", "suite": "storage", "tool": "vf_bench", "matrix": {"mode": ["heap", "mmap"]},
+     "args": ["--scenario", "load", "--index-file", "{work}/smoke.vfidx", "--load-mode", "{mode}", "--queries", "20", "--out", "{out}"]},
+    {"id": "threads-smoke", "suite": "threads", "tool": "vf_bench",
+     "args": ["--scenario", "threads", "--index-file", "{work}/smoke.vfidx", "--queries", "50", "--threads", "1,2", "--repeat", "2", "--out", "{out}"]},
+    {"id": "ingest-smoke", "suite": "ingest", "tool": "vf_bench",
+     "args": ["--scenario", "ingest", "--n", "2000", "--dim", "16", "--queries", "20", "--batch", "200", "--out", "{out}"]},
+    {"id": "micro-smoke", "suite": "topk", "tool": "vf_micro_bench",
+     "args": ["--benchmark_filter=BenchTopKHeap", "--benchmark_min_time=0.01s", "--benchmark_out={out}", "--benchmark_out_format=json"]}
+  ],
+  "not_run": []
+}

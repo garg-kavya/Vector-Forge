@@ -2088,6 +2088,26 @@ flowchart LR
 - **Benchmarks:** every suite in §16.3 feasible on this hardware; infeasible ones marked "not run" with reason.
 - **Acceptance:** README benchmark section generated from committed result files; every number traceable; plots
   committed; methodology doc complete.
+- **Implementation notes (as built):** the complete description is `docs/benchmarking.md`; results in
+  `benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_suite`.
+  - Scenarios stay in `vf_bench.cpp` (no `scenario.*`/`report_json.cpp` split). The suite runner is
+    `benchmarks/scripts/run_suite.py`, not `vf_bench --config`: a JSON config lists runs with
+    `matrix`/`exclude` expansion, `{out}`/`{work}` placeholders, per-run environment and repetition
+    count; every repetition is a fresh process; a `manifest.json` records machine, source revision,
+    the expanded configuration and the `not_run` list. `--resume` continues an interrupted suite.
+  - New `vf_bench` pieces: `exact` scenario (Flat QPS per thread count and single-thread latency
+    percentiles), `--build-threads` for `save`, peak RSS (`PeakWorkingSetSize` / `VmHWM`) in build
+    results, the exact ground-truth copy freed before searches, `--no-coarse-baseline`.
+  - Shared Python helpers (`vfbench_lib.py`: percentiles, recall, first ef reaching a target,
+    Pareto front, redaction of host names and paths, result validation) with unit tests;
+    `load_results.py`, `plot_results.py` (matplotlib, optional), `make_readme_tables.py`
+    (`--readme` rewrites the block between `BENCHMARKS:BEGIN/END`).
+  - Configs: `smoke.json` (CI, `.github/workflows/bench-smoke.yml`) and `full.json` (72 runs,
+    1 h 25 min here). Not run: 1 M × 1536-d (RAM), real datasets (`tools/datasets/fetch.py`
+    requires `--yes`; checksums are printed on download, not yet pinned), cold cache,
+    pinning, the sweep grid at 1 M rows, hnswlib/FAISS.
+  - Finding recorded with the results: Flat batch scaling above 12 threads is not reproducible on
+    the development laptop (desktop load plus fixed `parallel_for` chunks).
 
 ### Phase 10 — Observability, documentation, CI hardening, release
 

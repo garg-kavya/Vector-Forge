@@ -1,0 +1,147 @@
+{
+ "schema": 1,
+ "suite": "hnsw-sweep-minimal",
+ "git": {
+  "sha": "ceff91efdfdc-dirty"
+ },
+ "machine": {
+  "cpu": "AMD Ryzen 7 4800H with Radeon Graphics"
+ },
+ "build": {
+  "compiler": "MSVC 19.50.35728.0",
+  "type": "Release",
+  "simd_tier": "avx2",
+  "kernel_table": "avx2"
+ },
+ "dataset": {
+  "distribution": "gmm",
+  "n": 100000,
+  "queries": 1000,
+  "dim": 128,
+  "metric": "l2",
+  "clusters": 100,
+  "spread": 0.1,
+  "seed": 1
+ },
+ "params": {
+  "index": "hnsw",
+  "M": 48,
+  "ef_construction": 400,
+  "k": 10,
+  "selection": "heuristic",
+  "repair_orphans": true,
+  "prefetch": true,
+  "index_file": false,
+  "threads": 1
+ },
+ "build_result": {
+  "seconds": 64.1327,
+  "distance_computations": 2025408108,
+  "orphan_repairs": 0,
+  "orphans_unrepaired": 0,
+  "index_bytes": 52400682,
+  "invariants_ok": true,
+  "unreachable_level0": 0,
+  "peak_rss_bytes": 221745152
+ },
+ "sweep": [
+  {
+   "ef_search": 10,
+   "recall_at_k": 0.9377,
+   "recall_min": 0.6,
+   "qps": 10848.6,
+   "latency_us": {
+    "p50": 90.7,
+    "p95": 115.6,
+    "p99": 132.2,
+    "mean": 92.1775,
+    "max": 184
+   },
+   "dist_comps_mean": 768.353
+  },
+  {
+   "ef_search": 16,
+   "recall_at_k": 0.9784,
+   "recall_min": 0.7,
+   "qps": 8744.32,
+   "latency_us": {
+    "p50": 112,
+    "p95": 140.7,
+    "p99": 157.7,
+    "mean": 114.36,
+    "max": 227.1
+   },
+   "dist_comps_mean": 895.477
+  },
+  {
+   "ef_search": 32,
+   "recall_at_k": 0.9987,
+   "recall_min": 0.9,
+   "qps": 8778.42,
+   "latency_us": {
+    "p50": 101.3,
+    "p95": 160.6,
+    "p99": 404.9,
+    "mean": 113.916,
+    "max": 567.8
+   },
+   "dist_comps_mean": 1069.53
+  },
+  {
+   "ef_search": 64,
+   "recall_at_k": 0.9999,
+   "recall_min": 0.9,
+   "qps": 7566.74,
+   "latency_us": {
+    "p50": 130.3,
+    "p95": 154.8,
+    "p99": 173.3,
+    "mean": 132.157,
+    "max": 222.7
+   },
+   "dist_comps_mean": 1175.89
+  },
+  {
+   "ef_search": 128,
+   "recall_at_k": 1,
+   "recall_min": 1,
+   "qps": 5726.77,
+   "latency_us": {
+    "p50": 172.7,
+    "p95": 198.9,
+    "p99": 218.4,
+    "mean": 174.619,
+    "max": 268.8
+   },
+   "dist_comps_mean": 1215.85
+  },
+  {
+   "ef_search": 256,
+   "recall_at_k": 1,
+   "recall_min": 1,
+   "qps": 3423.19,
+   "latency_us": {
+    "p50": 314.9,
+    "p95": 358.9,
+    "p99": 396.5,
+    "mean": 292.125,
+    "max": 461.8
+   },
+   "dist_comps_mean": 1233.19
+  },
+  {
+   "ef_search": 512,
+   "recall_at_k": 1,
+   "recall_min": 1,
+   "qps": 2830.56,
+   "latency_us": {
+    "p50": 351.7,
+    "p95": 380.2,
+    "p99": 407,
+    "mean": 353.287,
+    "max": 499.6
+   },
+   "dist_comps_mean": 1262.86
+  }
+ ]
+}

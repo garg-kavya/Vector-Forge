@@ -1,0 +1,119 @@
+{
+ "schema": 1,
+ "suite": "hnsw-sweep-minimal",
+ "git": {
+  "sha": "ceff91efdfdc-dirty"
+ },
+ "machine": {
+  "cpu": "AMD Ryzen 7 4800H with Radeon Graphics"
+ },
+ "build": {
+  "compiler": "MSVC 19.50.35728.0",
+  "type": "Release",
+  "simd_tier": "avx2",
+  "kernel_table": "avx2"
+ },
+ "dataset": {
+  "distribution": "gmm",
+  "n": 100000,
+  "queries": 1000,
+  "dim": 768,
+  "metric": "l2",
+  "clusters": 100,
+  "spread": 0.1,
+  "seed": 1
+ },
+ "params": {
+  "index": "hnsw",
+  "M": 16,
+  "ef_construction": 200,
+  "k": 10,
+  "selection": "heuristic",
+  "repair_orphans": true,
+  "prefetch": false,
+  "index_file": true,
+  "threads": 1
+ },
+ "build_result": {
+  "seconds": 0,
+  "distance_computations": 0,
+  "orphan_repairs": 0,
+  "orphans_unrepaired": 0,
+  "index_bytes": 18481152,
+  "invariants_ok": true,
+  "unreachable_level0": 1,
+  "peak_rss_bytes": 966418432
+ },
+ "sweep": [
+  {
+   "ef_search": 16,
+   "recall_at_k": 0.7396,
+   "recall_min": 0,
+   "qps": 7288.67,
+   "latency_us": {
+    "p50": 136.4,
+    "p95": 167.1,
+    "p99": 185.4,
+    "mean": 137.199,
+    "max": 263.1
+   },
+   "dist_comps_mean": 484.221
+  },
+  {
+   "ef_search": 32,
+   "recall_at_k": 0.8875,
+   "recall_min": 0,
+   "qps": 4924.84,
+   "latency_us": {
+    "p50": 199.3,
+    "p95": 233.2,
+    "p99": 324.3,
+    "mean": 203.052,
+    "max": 439.1
+   },
+   "dist_comps_mean": 668.698
+  },
+  {
+   "ef_search": 64,
+   "recall_at_k": 0.9665,
+   "recall_min": 0,
+   "qps": 3529.65,
+   "latency_us": {
+    "p50": 280,
+    "p95": 317.2,
+    "p99": 347.8,
+    "mean": 283.314,
+    "max": 553.9
+   },
+   "dist_comps_mean": 881.106
+  },
+  {
+   "ef_search": 128,
+   "recall_at_k": 0.9907,
+   "recall_min": 0,
+   "qps": 2672.19,
+   "latency_us": {
+    "p50": 363.6,
+    "p95": 457,
+    "p99": 568.5,
+    "mean": 374.225,
+    "max": 814.6
+   },
+   "dist_comps_mean": 1043.01
+  },
+  {
+   "ef_search": 256,
+   "recall_at_k": 0.9935,
+   "recall_min": 0,
+   "qps": 1581.15,
+   "latency_us": {
+    "p50": 595.1,
+    "p95": 903.1,
+    "p99": 1105.9,
+    "mean": 632.451,
+    "max": 2085.3
+   },
+   "dist_comps_mean": 1115
+  }
+ ]
+}

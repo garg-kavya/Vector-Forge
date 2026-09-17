@@ -1,0 +1,74 @@
+{
+ "schema": 1,
+ "suite": "build",
+ "git": {
+  "sha": "ceff91efdfdc-dirty"
+ },
+ "machine": {
+  "cpu": "AMD Ryzen 7 4800H with Radeon Graphics"
+ },
+ "build": {
+  "compiler": "MSVC 19.50.35728.0",
+  "type": "Release",
+  "simd_tier": "avx2",
+  "kernel_table": "avx2"
+ },
+ "dataset": {
+  "distribution": "gmm",
+  "n": 100000,
+  "dim": 384,
+  "metric": "l2",
+  "seed": 1
+ },
+ "params": {
+  "M": 16,
+  "ef_construction": 200,
+  "k": 10,
+  "queries": 500,
+  "batch": 10000,
+  "hardware_threads": 16
+ },
+ "results": [
+  {
+   "concurrency": "concurrent",
+   "threads": 16,
+   "build_seconds": 5.86635,
+   "speedup_vs_coarse": null,
+   "index_bytes": 22545928,
+   "peak_rss_bytes": 347189248,
+   "valid": true,
+   "unreachable_level0": 1,
+   "orphans_unrepaired": 0,
+   "recall": [
+    {
+     "ef_search": 10,
+     "recall": 0.6482
+    },
+    {
+     "ef_search": 16,
+     "recall": 0.7564
+    },
+    {
+     "ef_search": 32,
+     "recall": 0.8976
+    },
+    {
+     "ef_search": 64,
+     "recall": 0.9762
+    },
+    {
+     "ef_search": 128,
+     "recall": 0.9952
+    },
+    {
+     "ef_search": 256,
+     "recall": 0.9998
+    },
+    {
+     "ef_search": 512,
+     "recall": 1
+    }
+   ]
+  }
+ ]
+}

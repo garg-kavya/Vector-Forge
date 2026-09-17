@@ -1,0 +1,57 @@
+{
+ "schema": 1,
+ "suite": "http",
+ "git": {
+  "sha": "ceff91efdfdc-dirty"
+ },
+ "machine": {
+  "cpu": "AMD Ryzen 7 4800H with Radeon Graphics"
+ },
+ "build": {
+  "compiler": "MSVC 19.50.35728.0",
+  "type": "Release",
+  "simd_tier": "avx2"
+ },
+ "params": {
+  "n": 100000,
+  "dim": 128,
+  "index": "hnsw",
+  "k": 10,
+  "ef_search": 64,
+  "queries": 2000,
+  "ingest": 50000,
+  "batch": 1000,
+  "transport": "loopback, keep-alive, one client thread"
+ },
+ "search": {
+  "in_process": {
+   "mean_us": 118.606,
+   "p50_us": 110.4,
+   "p99_us": 205.5
+  },
+  "http_round_trip": {
+   "mean_us": 532.928,
+   "p50_us": 325.3,
+   "p99_us": 1100.6
+  },
+  "server_handling": {
+   "mean_us": 164.175,
+   "p50_us": 152,
+   "p99_us": 424
+  },
+  "request_decode": {
+   "mean_us": 63.4101,
+   "p50_us": 57.4,
+   "p99_us": 152.4
+  },
+  "request_bytes_mean": 2564,
+  "response_bytes_mean": 457
+ },
+ "ingest": {
+  "json_vectors_per_s": 19077.7,
+  "json_client_encode_s": 0.872997,
+  "json_bytes": 127690087,
+  "bulk_vectors_per_s": 377026,
+  "bulk_bytes": 26000800
+ }
+}

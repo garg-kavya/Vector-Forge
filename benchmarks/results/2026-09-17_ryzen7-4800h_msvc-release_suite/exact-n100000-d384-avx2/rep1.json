@@ -1,0 +1,55 @@
+{
+ "schema": 1,
+ "suite": "exact",
+ "git": {
+  "sha": "ceff91efdfdc-dirty"
+ },
+ "machine": {
+  "cpu": "AMD Ryzen 7 4800H with Radeon Graphics"
+ },
+ "build": {
+  "compiler": "MSVC 19.50.35728.0",
+  "type": "Release",
+  "simd_tier": "avx2",
+  "kernel_table": "avx2"
+ },
+ "dataset": {
+  "distribution": "gmm",
+  "n": 100000,
+  "dim": 384,
+  "metric": "l2",
+  "seed": 1
+ },
+ "params": {
+  "index": "flat",
+  "k": 10,
+  "queries": 500,
+  "repeat": 3,
+  "hardware_threads": 16
+ },
+ "latency_us": {
+  "p50": 7562,
+  "p95": 10101.4,
+  "p99": 13402.3,
+  "mean": 8058.58,
+  "max": 16884.1
+ },
+ "results": [
+  {
+   "threads": 1,
+   "qps_median": 129.424,
+   "qps_min": 126.371,
+   "qps_max": 133.64
+  },
+  {
+   "threads": 16,
+   "qps_median": 279.915,
+   "qps_min": 272.236,
+   "qps_max": 280.84
+  }
+ ],
+ "memory": {
+  "vectors_bytes": 163577856,
+  "peak_rss_bytes": 322031616
+ }
+}

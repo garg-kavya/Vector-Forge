@@ -122,6 +122,15 @@ All notable changes to this project are documented here. The format follows
   `examples/python/quickstart.py`, `docs/python-api.md`, `benchmarks/python/bench_overhead.py`
   and `vf_bench --queries-file`.
 
+- Phase 9: benchmark suite. `benchmarks/scripts/run_suite.py` (JSON suite configs with matrix
+  expansion, one process per repetition, manifest with machine and revision, resume),
+  `load_results.py`, `plot_results.py`, `make_readme_tables.py` (generates the README performance
+  section), shared helpers with unit tests; `benchmarks/configs/{smoke,full}.json`; `vf_bench`
+  `exact` scenario, peak RSS, `save --build-threads`, `--no-coarse-baseline`;
+  `tools/datasets/{fetch.py,hdf5_to_npy.py}`; `docs/benchmarking.md`; benchmark smoke workflow.
+  Full results for this laptop in
+  `benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_suite` (tables, plots, not-run list).
+
 - Fault-injection tests (`test_exception_safety`): every allocation of every insert fails in turn;
   failed inserts must leave collections unchanged and fully searchable. Concurrent-read test
   (`vf_concurrency_tests`) for the const-member thread-safety contract, clean under TSan.

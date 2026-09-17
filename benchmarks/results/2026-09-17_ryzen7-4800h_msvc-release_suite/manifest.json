@@ -1,0 +1,3506 @@
+{
+ "schema": 1,
+ "suite": "full",
+ "description": "Every scenario of docs/DESIGN.md section 16.3 that is feasible on a 16 GB, 8-core laptop with synthetic data. Runs in listed order; later runs reuse index files written by earlier ones.",
+ "started": "2026-09-16T22:27:23.330785+00:00",
+ "git": {
+  "sha": "ceff91efdfdc",
+  "dirty": true
+ },
+ "machine": {
+  "os": "Windows",
+  "os_release": "11",
+  "os_version": "10.0.26200",
+  "arch": "AMD64",
+  "logical_cpus": 16,
+  "python": "3.14.3",
+  "physical_cpus": 8,
+  "ram_bytes": 16495398912,
+  "ac_power": true,
+  "power_plan": "My Custom Plan 1"
+ },
+ "build_dir_name": "suitebin",
+ "config": {
+  "suite": "full",
+  "description": "Every scenario of docs/DESIGN.md section 16.3 that is feasible on a 16 GB, 8-core laptop with synthetic data. Runs in listed order; later runs reuse index files written by earlier ones.",
+  "repeat": 1,
+  "runs": [
+   {
+    "id": "kernels",
+    "suite": "kernels",
+    "tool": "vf_micro_bench",
+    "repeat": 1,
+    "args": [
+     "--benchmark_filter=Bench(Dot|L2sq|Norm2)",
+     "--benchmark_repetitions=5",
+     "--benchmark_min_time=0.2s",
+     "--benchmark_report_aggregates_only=true",
+     "--benchmark_out={out}",
+     "--benchmark_out_format=json"
+    ]
+   },
+   {
+    "id": "topk",
+    "suite": "topk",
+    "tool": "vf_micro_bench",
+    "repeat": 1,
+    "args": [
+     "--benchmark_filter=BenchTopK",
+     "--benchmark_repetitions=5",
+     "--benchmark_min_time=0.1s",
+     "--benchmark_report_aggregates_only=true",
+     "--benchmark_out={out}",
+     "--benchmark_out_format=json"
+    ]
+   },
+   {
+    "id": "ablation-visited",
+    "suite": "ablation",
+    "tool": "vf_micro_bench",
+    "repeat": 1,
+    "args": [
+     "--benchmark_filter=BenchVisited",
+     "--benchmark_repetitions=5",
+     "--benchmark_min_time=0.1s",
+     "--benchmark_report_aggregates_only=true",
+     "--benchmark_out={out}",
+     "--benchmark_out_format=json"
+    ]
+   },
+   {
+    "id": "exact-n{n}-d{dim}-{simd}",
+    "suite": "exact",
+    "tool": "vf_bench",
+    "repeat": 1,
+    "matrix": {
+     "n": [
+      10000,
+      100000
+     ],
+     "dim": [
+      128,
+      384,
+      768,
+      1536
+     ],
+     "simd": [
+      "scalar",
+      "avx2"
+     ]
+    },
+    "env": {
+     "VF_SIMD": "{simd}"
+    },
+    "args": [
+     "--scenario",
+     "exact",
+     "--n",
+     "{n}",
+     "--dim",
+     "{dim}",
+     "--queries",
+     "500",
+     "--k",
+     "10",
+     "--threads",
+     "1,16",
+     "--repeat",
+     "3",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "exact-n1000000-d{dim}-{simd}",
+    "suite": "exact",
+    "tool": "vf_bench",
+    "repeat": 1,
+    "matrix": {
+     "dim": [
+      128,
+      384,
+      768
+     ],
+     "simd": [
+      "scalar",
+      "avx2"
+     ]
+    },
+    "env": {
+     "VF_SIMD": "{simd}"
+    },
+    "args": [
+     "--scenario",
+     "exact",
+     "--n",
+     "1000000",
+     "--dim",
+     "{dim}",
+     "--queries",
+     "50",
+     "--k",
+     "10",
+     "--threads",
+     "1,16",
+     "--repeat",
+     "1",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "sweep-M{M}-efc{efc}",
+    "suite": "hnsw-sweep",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "matrix": {
+     "M": [
+      8,
+      16,
+      32,
+      48
+     ],
+     "efc": [
+      100,
+      200,
+      400
+     ]
+    },
+    "args": [
+     "--n",
+     "100000",
+     "--dim",
+     "128",
+     "--queries",
+     "1000",
+     "--k",
+     "10",
+     "--M",
+     "{M}",
+     "--ef-construction",
+     "{efc}",
+     "--skip-flat-timing",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "sweep-M16-efc200-k{k}",
+    "suite": "hnsw-sweep",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "matrix": {
+     "k": [
+      1,
+      100
+     ]
+    },
+    "args": [
+     "--n",
+     "100000",
+     "--dim",
+     "128",
+     "--queries",
+     "1000",
+     "--k",
+     "{k}",
+     "--M",
+     "16",
+     "--ef-construction",
+     "200",
+     "--skip-flat-timing",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "scale-n{n}-d{dim}",
+    "suite": "scale",
+    "tool": "vf_bench",
+    "repeat": 1,
+    "matrix": {
+     "n": [
+      10000,
+      100000,
+      1000000
+     ],
+     "dim": [
+      128,
+      384,
+      768,
+      1536
+     ]
+    },
+    "exclude": [
+     {
+      "n": 1000000,
+      "dim": 1536
+     }
+    ],
+    "args": [
+     "--scenario",
+     "build",
+     "--n",
+     "{n}",
+     "--dim",
+     "{dim}",
+     "--queries",
+     "500",
+     "--k",
+     "10",
+     "--threads",
+     "16",
+     "--no-coarse-baseline",
+     "--batch",
+     "10000",
+     "--ef-search",
+     "10,16,32,64,128,256,512",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "save-hnsw-100k-d{dim}",
+    "suite": "storage",
+    "tool": "vf_bench",
+    "repeat": 1,
+    "matrix": {
+     "dim": [
+      128,
+      768
+     ]
+    },
+    "args": [
+     "--scenario",
+     "save",
+     "--n",
+     "100000",
+     "--dim",
+     "{dim}",
+     "--index",
+     "hnsw",
+     "--build-threads",
+     "16",
+     "--index-file",
+     "{work}/hnsw_100k_d{dim}.vfidx",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "save-flat-100k-d128",
+    "suite": "storage",
+    "tool": "vf_bench",
+    "repeat": 1,
+    "args": [
+     "--scenario",
+     "save",
+     "--n",
+     "100000",
+     "--dim",
+     "128",
+     "--index",
+     "flat",
+     "--index-file",
+     "{work}/flat_100k_d128.vfidx",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "save-flat-1m-d768",
+    "suite": "storage",
+    "tool": "vf_bench",
+    "repeat": 1,
+    "args": [
+     "--scenario",
+     "save",
+     "--n",
+     "1000000",
+     "--dim",
+     "768",
+     "--index",
+     "flat",
+     "--index-file",
+     "{work}/flat_1m_d768.vfidx",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "load-flat-1m-d768-{mode}",
+    "suite": "storage",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "matrix": {
+     "mode": [
+      "heap",
+      "mmap"
+     ]
+    },
+    "args": [
+     "--scenario",
+     "load",
+     "--index-file",
+     "{work}/flat_1m_d768.vfidx",
+     "--load-mode",
+     "{mode}",
+     "--queries",
+     "20",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "load-flat-1m-d768-mmap-prefault",
+    "suite": "storage",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "args": [
+     "--scenario",
+     "load",
+     "--index-file",
+     "{work}/flat_1m_d768.vfidx",
+     "--load-mode",
+     "mmap",
+     "--prefault",
+     "--queries",
+     "20",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "load-hnsw-100k-d768-{mode}",
+    "suite": "storage",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "matrix": {
+     "mode": [
+      "heap",
+      "mmap"
+     ]
+    },
+    "args": [
+     "--scenario",
+     "load",
+     "--index-file",
+     "{work}/hnsw_100k_d768.vfidx",
+     "--load-mode",
+     "{mode}",
+     "--queries",
+     "200",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "simd-hnsw-100k-d768-{simd}",
+    "suite": "simd",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "matrix": {
+     "simd": [
+      "scalar",
+      "avx2"
+     ]
+    },
+    "args": [
+     "--index-file",
+     "{work}/hnsw_100k_d768.vfidx",
+     "--dim",
+     "768",
+     "--queries",
+     "1000",
+     "--simd",
+     "{simd}",
+     "--ef-search",
+     "16,32,64,128,256",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "ablation-prefetch-{p}",
+    "suite": "ablation",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "matrix": {
+     "p": [
+      "on",
+      "off"
+     ]
+    },
+    "args": [
+     "--index-file",
+     "{work}/hnsw_100k_d768.vfidx",
+     "--dim",
+     "768",
+     "--queries",
+     "1000",
+     "--prefetch",
+     "{p}",
+     "--skip-flat-timing",
+     "--ef-search",
+     "16,32,64,128,256",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "ablation-selection-{sel}",
+    "suite": "ablation",
+    "tool": "vf_bench",
+    "repeat": 1,
+    "matrix": {
+     "sel": [
+      "heuristic",
+      "simple"
+     ]
+    },
+    "args": [
+     "--n",
+     "100000",
+     "--dim",
+     "128",
+     "--queries",
+     "1000",
+     "--selection",
+     "{sel}",
+     "--skip-flat-timing",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "threads-search-hnsw-100k-d128",
+    "suite": "threads",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "args": [
+     "--scenario",
+     "threads",
+     "--index-file",
+     "{work}/hnsw_100k_d128.vfidx",
+     "--queries",
+     "20000",
+     "--ef-search",
+     "64",
+     "--threads",
+     "1,2,4,8,12,16",
+     "--repeat",
+     "5",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "threads-search-flat-100k-d128",
+    "suite": "threads",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "args": [
+     "--scenario",
+     "threads",
+     "--index-file",
+     "{work}/flat_100k_d128.vfidx",
+     "--queries",
+     "2000",
+     "--threads",
+     "1,2,4,8,12,16",
+     "--repeat",
+     "5",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "threads-build-hnsw-100k-d128",
+    "suite": "threads",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "args": [
+     "--scenario",
+     "build",
+     "--n",
+     "100000",
+     "--dim",
+     "128",
+     "--queries",
+     "500",
+     "--threads",
+     "1,2,4,8,16",
+     "--batch",
+     "10000",
+     "--ef-search",
+     "32,64",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "ingest-hnsw-100k-d128-{mode}-w{w}",
+    "suite": "ingest",
+    "tool": "vf_bench",
+    "repeat": 3,
+    "matrix": {
+     "mode": [
+      "coarse",
+      "concurrent"
+     ],
+     "w": [
+      1,
+      4
+     ]
+    },
+    "exclude": [
+     {
+      "mode": "coarse",
+      "w": 4
+     }
+    ],
+    "args": [
+     "--scenario",
+     "ingest",
+     "--n",
+     "100000",
+     "--dim",
+     "128",
+     "--index",
+     "hnsw",
+     "--queries",
+     "1000",
+     "--ef-search",
+     "64",
+     "--batch",
+     "1000",
+     "--concurrency",
+     "{mode}",
+     "--writer-threads",
+     "{w}",
+     "--out",
+     "{out}"
+    ]
+   },
+   {
+    "id": "http-hnsw-100k-d128",
+    "suite": "http",
+    "tool": "vf_http_bench",
+    "repeat": 3,
+    "args": [
+     "--n",
+     "100000",
+     "--dim",
+     "128",
+     "--queries",
+     "2000",
+     "--ingest",
+     "50000",
+     "--batch",
+     "1000",
+     "--out",
+     "{out}"
+    ]
+   }
+  ],
+  "not_run": [
+   {
+    "id": "exact-n1000000-d1536",
+    "suite": "exact",
+    "reason": "6.1 GB of vectors plus the 6.1 GB generated input exceed what fits next to the OS in 15.4 GB RAM without paging."
+   },
+   {
+    "id": "scale-n1000000-d1536",
+    "suite": "scale",
+    "reason": "Same memory limit as exact-n1000000-d1536 (input, exact ground-truth copy and index)."
+   },
+   {
+    "id": "datasets-real",
+    "suite": "hnsw-sweep",
+    "reason": "SIFT1M, GloVe-100 and the 384-d/1536-d embedding sets are downloads that DESIGN \u00a716.2 requires the user to approve; they were not downloaded. tools/datasets/fetch.py and hdf5_to_npy.py prepare them."
+   },
+   {
+    "id": "storage-cold-cache",
+    "suite": "storage",
+    "reason": "Windows offers no supported way to evict the file cache without a reboot; all load timings are warm-cache."
+   },
+   {
+    "id": "threads-pinning",
+    "suite": "threads",
+    "reason": "Thread affinity is not implemented in vf_bench; the OS scheduler places threads."
+   },
+   {
+    "id": "hnsw-sweep-n1000000",
+    "suite": "hnsw-sweep",
+    "reason": "The 12-configuration grid runs serial builds (graph statistics come from the single-threaded backend); at 1M rows this would take several hours. The 1M point is covered by scale-n1000000-* with a parallel build."
+   },
+   {
+    "id": "external-reference",
+    "suite": "hnsw-sweep",
+    "reason": "hnswlib/FAISS comparisons are optional (DESIGN \u00a716.1) and were not installed."
+   }
+  ]
+ },
+ "not_run": [
+  {
+   "id": "exact-n1000000-d1536",
+   "suite": "exact",
+   "reason": "6.1 GB of vectors plus the 6.1 GB generated input exceed what fits next to the OS in 15.4 GB RAM without paging."
+  },
+  {
+   "id": "scale-n1000000-d1536",
+   "suite": "scale",
+   "reason": "Same memory limit as exact-n1000000-d1536 (input, exact ground-truth copy and index)."
+  },
+  {
+   "id": "datasets-real",
+   "suite": "hnsw-sweep",
+   "reason": "SIFT1M, GloVe-100 and the 384-d/1536-d embedding sets are downloads that DESIGN \u00a716.2 requires the user to approve; they were not downloaded. tools/datasets/fetch.py and hdf5_to_npy.py prepare them."
+  },
+  {
+   "id": "storage-cold-cache",
+   "suite": "storage",
+   "reason": "Windows offers no supported way to evict the file cache without a reboot; all load timings are warm-cache."
+  },
+  {
+   "id": "threads-pinning",
+   "suite": "threads",
+   "reason": "Thread affinity is not implemented in vf_bench; the OS scheduler places threads."
+  },
+  {
+   "id": "hnsw-sweep-n1000000",
+   "suite": "hnsw-sweep",
+   "reason": "The 12-configuration grid runs serial builds (graph statistics come from the single-threaded backend); at 1M rows this would take several hours. The 1M point is covered by scale-n1000000-* with a parallel build."
+  },
+  {
+   "id": "external-reference",
+   "suite": "hnsw-sweep",
+   "reason": "hnswlib/FAISS comparisons are optional (DESIGN \u00a716.1) and were not installed."
+  }
+ ],
+ "runs": {
+  "kernels": {
+   "suite": "kernels",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 306.57,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_micro_bench",
+   "args": [
+    "--benchmark_filter=Bench(Dot|L2sq|Norm2)",
+    "--benchmark_repetitions=5",
+    "--benchmark_min_time=0.2s",
+    "--benchmark_report_aggregates_only=true",
+    "--benchmark_out={out}",
+    "--benchmark_out_format=json"
+   ],
+   "env": {},
+   "bindings": {}
+  },
+  "topk": {
+   "suite": "topk",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 78.348,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_micro_bench",
+   "args": [
+    "--benchmark_filter=BenchTopK",
+    "--benchmark_repetitions=5",
+    "--benchmark_min_time=0.1s",
+    "--benchmark_report_aggregates_only=true",
+    "--benchmark_out={out}",
+    "--benchmark_out_format=json"
+   ],
+   "env": {},
+   "bindings": {}
+  },
+  "ablation-visited": {
+   "suite": "ablation",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 10.712,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_micro_bench",
+   "args": [
+    "--benchmark_filter=BenchVisited",
+    "--benchmark_repetitions=5",
+    "--benchmark_min_time=0.1s",
+    "--benchmark_report_aggregates_only=true",
+    "--benchmark_out={out}",
+    "--benchmark_out_format=json"
+   ],
+   "env": {},
+   "bindings": {}
+  },
+  "exact-n10000-d128-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 2.134,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "10000",
+    "--dim",
+    "128",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "n": 10000,
+    "dim": 128,
+    "simd": "scalar"
+   }
+  },
+  "exact-n10000-d128-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 0.703,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "10000",
+    "--dim",
+    "128",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "n": 10000,
+    "dim": 128,
+    "simd": "avx2"
+   }
+  },
+  "exact-n10000-d384-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 7.311,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "10000",
+    "--dim",
+    "384",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "n": 10000,
+    "dim": 384,
+    "simd": "scalar"
+   }
+  },
+  "exact-n10000-d384-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 2.389,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "10000",
+    "--dim",
+    "384",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "n": 10000,
+    "dim": 384,
+    "simd": "avx2"
+   }
+  },
+  "exact-n10000-d768-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 15.015,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "10000",
+    "--dim",
+    "768",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "n": 10000,
+    "dim": 768,
+    "simd": "scalar"
+   }
+  },
+  "exact-n10000-d768-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 4.93,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "10000",
+    "--dim",
+    "768",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "n": 10000,
+    "dim": 768,
+    "simd": "avx2"
+   }
+  },
+  "exact-n10000-d1536-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 30.222,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "10000",
+    "--dim",
+    "1536",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "n": 10000,
+    "dim": 1536,
+    "simd": "scalar"
+   }
+  },
+  "exact-n10000-d1536-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 10.258,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "10000",
+    "--dim",
+    "1536",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "n": 10000,
+    "dim": 1536,
+    "simd": "avx2"
+   }
+  },
+  "exact-n100000-d128-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 21.766,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "n": 100000,
+    "dim": 128,
+    "simd": "scalar"
+   }
+  },
+  "exact-n100000-d128-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 9.421,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "n": 100000,
+    "dim": 128,
+    "simd": "avx2"
+   }
+  },
+  "exact-n100000-d384-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 73.975,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "100000",
+    "--dim",
+    "384",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "n": 100000,
+    "dim": 384,
+    "simd": "scalar"
+   }
+  },
+  "exact-n100000-d384-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 26.148,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "100000",
+    "--dim",
+    "384",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "n": 100000,
+    "dim": 384,
+    "simd": "avx2"
+   }
+  },
+  "exact-n100000-d768-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 151.396,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "100000",
+    "--dim",
+    "768",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "n": 100000,
+    "dim": 768,
+    "simd": "scalar"
+   }
+  },
+  "exact-n100000-d768-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 50.849,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "100000",
+    "--dim",
+    "768",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "n": 100000,
+    "dim": 768,
+    "simd": "avx2"
+   }
+  },
+  "exact-n100000-d1536-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 302.063,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "100000",
+    "--dim",
+    "1536",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "n": 100000,
+    "dim": 1536,
+    "simd": "scalar"
+   }
+  },
+  "exact-n100000-d1536-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 100.191,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "100000",
+    "--dim",
+    "1536",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "3",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "n": 100000,
+    "dim": 1536,
+    "simd": "avx2"
+   }
+  },
+  "exact-n1000000-d128-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 14.781,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "1000000",
+    "--dim",
+    "128",
+    "--queries",
+    "50",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "1",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "dim": 128,
+    "simd": "scalar"
+   }
+  },
+  "exact-n1000000-d128-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 7.006,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "1000000",
+    "--dim",
+    "128",
+    "--queries",
+    "50",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "1",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "dim": 128,
+    "simd": "avx2"
+   }
+  },
+  "exact-n1000000-d384-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 49.98,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "1000000",
+    "--dim",
+    "384",
+    "--queries",
+    "50",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "1",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "dim": 384,
+    "simd": "scalar"
+   }
+  },
+  "exact-n1000000-d384-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 19.444,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "1000000",
+    "--dim",
+    "384",
+    "--queries",
+    "50",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "1",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "dim": 384,
+    "simd": "avx2"
+   }
+  },
+  "exact-n1000000-d768-scalar": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 102.841,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "1000000",
+    "--dim",
+    "768",
+    "--queries",
+    "50",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "1",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "scalar"
+   },
+   "bindings": {
+    "dim": 768,
+    "simd": "scalar"
+   }
+  },
+  "exact-n1000000-d768-avx2": {
+   "suite": "exact",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 36.686,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "exact",
+    "--n",
+    "1000000",
+    "--dim",
+    "768",
+    "--queries",
+    "50",
+    "--k",
+    "10",
+    "--threads",
+    "1,16",
+    "--repeat",
+    "1",
+    "--out",
+    "{out}"
+   ],
+   "env": {
+    "VF_SIMD": "avx2"
+   },
+   "bindings": {
+    "dim": 768,
+    "simd": "avx2"
+   }
+  },
+  "sweep-M8-efc100": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 12.879,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 13.987,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 13.628,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "8",
+    "--ef-construction",
+    "100",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 8,
+    "efc": 100
+   }
+  },
+  "sweep-M8-efc200": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 17.965,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 18.162,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 18.2,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "8",
+    "--ef-construction",
+    "200",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 8,
+    "efc": 200
+   }
+  },
+  "sweep-M8-efc400": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 28.604,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 27.1,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 27.008,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "8",
+    "--ef-construction",
+    "400",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 8,
+    "efc": 400
+   }
+  },
+  "sweep-M16-efc100": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 18.538,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 18.408,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 17.567,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "16",
+    "--ef-construction",
+    "100",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 16,
+    "efc": 100
+   }
+  },
+  "sweep-M16-efc200": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 22.014,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 22.675,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 22.969,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "16",
+    "--ef-construction",
+    "200",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 16,
+    "efc": 200
+   }
+  },
+  "sweep-M16-efc400": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 32.264,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 33.401,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 32.543,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "16",
+    "--ef-construction",
+    "400",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 16,
+    "efc": 400
+   }
+  },
+  "sweep-M32-efc100": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 32.246,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 32.482,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 32.178,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "32",
+    "--ef-construction",
+    "100",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 32,
+    "efc": 100
+   }
+  },
+  "sweep-M32-efc200": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 38.244,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 36.852,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 37.211,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "32",
+    "--ef-construction",
+    "200",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 32,
+    "efc": 200
+   }
+  },
+  "sweep-M32-efc400": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 48.79,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 49.017,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 47.725,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "32",
+    "--ef-construction",
+    "400",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 32,
+    "efc": 400
+   }
+  },
+  "sweep-M48-efc100": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 51.558,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 51.329,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 50.213,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "48",
+    "--ef-construction",
+    "100",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 48,
+    "efc": 100
+   }
+  },
+  "sweep-M48-efc200": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 56.353,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 56.202,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 55.575,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "48",
+    "--ef-construction",
+    "200",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 48,
+    "efc": 200
+   }
+  },
+  "sweep-M48-efc400": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 69.063,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 69.182,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 69.658,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "10",
+    "--M",
+    "48",
+    "--ef-construction",
+    "400",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "M": 48,
+    "efc": 400
+   }
+  },
+  "sweep-M16-efc200-k1": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 22.106,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 21.919,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 23.652,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "1",
+    "--M",
+    "16",
+    "--ef-construction",
+    "200",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "k": 1
+   }
+  },
+  "sweep-M16-efc200-k100": {
+   "suite": "hnsw-sweep",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 23.064,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 22.776,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 23.309,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--k",
+    "100",
+    "--M",
+    "16",
+    "--ef-construction",
+    "200",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "k": 100
+   }
+  },
+  "scale-n10000-d128": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 0.218,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "10000",
+    "--dim",
+    "128",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 10000,
+    "dim": 128
+   }
+  },
+  "scale-n10000-d384": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 0.478,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "10000",
+    "--dim",
+    "384",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 10000,
+    "dim": 384
+   }
+  },
+  "scale-n10000-d768": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 1.326,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "10000",
+    "--dim",
+    "768",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 10000,
+    "dim": 768
+   }
+  },
+  "scale-n10000-d1536": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 2.871,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "10000",
+    "--dim",
+    "1536",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 10000,
+    "dim": 1536
+   }
+  },
+  "scale-n100000-d128": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 3.303,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 100000,
+    "dim": 128
+   }
+  },
+  "scale-n100000-d384": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 8.648,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "100000",
+    "--dim",
+    "384",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 100000,
+    "dim": 384
+   }
+  },
+  "scale-n100000-d768": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 17.547,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "100000",
+    "--dim",
+    "768",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 100000,
+    "dim": 768
+   }
+  },
+  "scale-n100000-d1536": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 34.256,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "100000",
+    "--dim",
+    "1536",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 100000,
+    "dim": 1536
+   }
+  },
+  "scale-n1000000-d128": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 106.343,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "1000000",
+    "--dim",
+    "128",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 1000000,
+    "dim": 128
+   }
+  },
+  "scale-n1000000-d384": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 208.117,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "1000000",
+    "--dim",
+    "384",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 1000000,
+    "dim": 384
+   }
+  },
+  "scale-n1000000-d768": {
+   "suite": "scale",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 454.774,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "1000000",
+    "--dim",
+    "768",
+    "--queries",
+    "500",
+    "--k",
+    "10",
+    "--threads",
+    "16",
+    "--no-coarse-baseline",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "10,16,32,64,128,256,512",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "n": 1000000,
+    "dim": 768
+   }
+  },
+  "save-hnsw-100k-d128": {
+   "suite": "storage",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 3.05,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "save",
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--index",
+    "hnsw",
+    "--build-threads",
+    "16",
+    "--index-file",
+    "{work}/hnsw_100k_d128.vfidx",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "dim": 128
+   }
+  },
+  "save-hnsw-100k-d768": {
+   "suite": "storage",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 13.939,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "save",
+    "--n",
+    "100000",
+    "--dim",
+    "768",
+    "--index",
+    "hnsw",
+    "--build-threads",
+    "16",
+    "--index-file",
+    "{work}/hnsw_100k_d768.vfidx",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "dim": 768
+   }
+  },
+  "save-flat-100k-d128": {
+   "suite": "storage",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 0.28,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "save",
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--index",
+    "flat",
+    "--index-file",
+    "{work}/flat_100k_d128.vfidx",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {}
+  },
+  "save-flat-1m-d768": {
+   "suite": "storage",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 15.252,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "save",
+    "--n",
+    "1000000",
+    "--dim",
+    "768",
+    "--index",
+    "flat",
+    "--index-file",
+    "{work}/flat_1m_d768.vfidx",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {}
+  },
+  "load-flat-1m-d768-heap": {
+   "suite": "storage",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 11.259,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 9.912,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 9.766,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "load",
+    "--index-file",
+    "{work}/flat_1m_d768.vfidx",
+    "--load-mode",
+    "heap",
+    "--queries",
+    "20",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "mode": "heap"
+   }
+  },
+  "load-flat-1m-d768-mmap": {
+   "suite": "storage",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 7.53,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 7.744,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 8.581,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "load",
+    "--index-file",
+    "{work}/flat_1m_d768.vfidx",
+    "--load-mode",
+    "mmap",
+    "--queries",
+    "20",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "mode": "mmap"
+   }
+  },
+  "load-flat-1m-d768-mmap-prefault": {
+   "suite": "storage",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 7.796,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 8.378,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 7.749,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "load",
+    "--index-file",
+    "{work}/flat_1m_d768.vfidx",
+    "--load-mode",
+    "mmap",
+    "--prefault",
+    "--queries",
+    "20",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {}
+  },
+  "load-hnsw-100k-d768-heap": {
+   "suite": "storage",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 0.674,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 0.482,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 0.476,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "load",
+    "--index-file",
+    "{work}/hnsw_100k_d768.vfidx",
+    "--load-mode",
+    "heap",
+    "--queries",
+    "200",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "mode": "heap"
+   }
+  },
+  "load-hnsw-100k-d768-mmap": {
+   "suite": "storage",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 0.199,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 0.21,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 0.207,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "load",
+    "--index-file",
+    "{work}/hnsw_100k_d768.vfidx",
+    "--load-mode",
+    "mmap",
+    "--queries",
+    "200",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "mode": "mmap"
+   }
+  },
+  "simd-hnsw-100k-d768-scalar": {
+   "suite": "simd",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 116.354,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 116.548,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 116.554,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--index-file",
+    "{work}/hnsw_100k_d768.vfidx",
+    "--dim",
+    "768",
+    "--queries",
+    "1000",
+    "--simd",
+    "scalar",
+    "--ef-search",
+    "16,32,64,128,256",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "simd": "scalar"
+   }
+  },
+  "simd-hnsw-100k-d768-avx2": {
+   "suite": "simd",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 33.465,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 34.172,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 32.799,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--index-file",
+    "{work}/hnsw_100k_d768.vfidx",
+    "--dim",
+    "768",
+    "--queries",
+    "1000",
+    "--simd",
+    "avx2",
+    "--ef-search",
+    "16,32,64,128,256",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "simd": "avx2"
+   }
+  },
+  "ablation-prefetch-on": {
+   "suite": "ablation",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 18.84,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 19.114,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 18.25,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--index-file",
+    "{work}/hnsw_100k_d768.vfidx",
+    "--dim",
+    "768",
+    "--queries",
+    "1000",
+    "--prefetch",
+    "on",
+    "--skip-flat-timing",
+    "--ef-search",
+    "16,32,64,128,256",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "p": "on"
+   }
+  },
+  "ablation-prefetch-off": {
+   "suite": "ablation",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 18.431,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 18.308,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 19.345,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--index-file",
+    "{work}/hnsw_100k_d768.vfidx",
+    "--dim",
+    "768",
+    "--queries",
+    "1000",
+    "--prefetch",
+    "off",
+    "--skip-flat-timing",
+    "--ef-search",
+    "16,32,64,128,256",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "p": "off"
+   }
+  },
+  "ablation-selection-heuristic": {
+   "suite": "ablation",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 22.732,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--selection",
+    "heuristic",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "sel": "heuristic"
+   }
+  },
+  "ablation-selection-simple": {
+   "suite": "ablation",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 17.812,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "1000",
+    "--selection",
+    "simple",
+    "--skip-flat-timing",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "sel": "simple"
+   }
+  },
+  "threads-search-hnsw-100k-d128": {
+   "suite": "threads",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 30.768,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 30.89,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 30.004,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "threads",
+    "--index-file",
+    "{work}/hnsw_100k_d128.vfidx",
+    "--queries",
+    "20000",
+    "--ef-search",
+    "64",
+    "--threads",
+    "1,2,4,8,12,16",
+    "--repeat",
+    "5",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {}
+  },
+  "threads-search-flat-100k-d128": {
+   "suite": "threads",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 84.198,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 85.351,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 84.9,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "threads",
+    "--index-file",
+    "{work}/flat_100k_d128.vfidx",
+    "--queries",
+    "2000",
+    "--threads",
+    "1,2,4,8,12,16",
+    "--repeat",
+    "5",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {}
+  },
+  "threads-build-hnsw-100k-d128": {
+   "suite": "threads",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 57.392,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 56.649,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 56.486,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "build",
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "500",
+    "--threads",
+    "1,2,4,8,16",
+    "--batch",
+    "10000",
+    "--ef-search",
+    "32,64",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {}
+  },
+  "ingest-hnsw-100k-d128-coarse-w1": {
+   "suite": "ingest",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 20.582,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 21.259,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 21.416,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "ingest",
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--index",
+    "hnsw",
+    "--queries",
+    "1000",
+    "--ef-search",
+    "64",
+    "--batch",
+    "1000",
+    "--concurrency",
+    "coarse",
+    "--writer-threads",
+    "1",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "mode": "coarse",
+    "w": 1
+   }
+  },
+  "ingest-hnsw-100k-d128-concurrent-w1": {
+   "suite": "ingest",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 18.679,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 18.906,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 19.185,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "ingest",
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--index",
+    "hnsw",
+    "--queries",
+    "1000",
+    "--ef-search",
+    "64",
+    "--batch",
+    "1000",
+    "--concurrency",
+    "concurrent",
+    "--writer-threads",
+    "1",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "mode": "concurrent",
+    "w": 1
+   }
+  },
+  "ingest-hnsw-100k-d128-concurrent-w4": {
+   "suite": "ingest",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 10.523,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 10.68,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 10.495,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_bench",
+   "args": [
+    "--scenario",
+    "ingest",
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--index",
+    "hnsw",
+    "--queries",
+    "1000",
+    "--ef-search",
+    "64",
+    "--batch",
+    "1000",
+    "--concurrency",
+    "concurrent",
+    "--writer-threads",
+    "4",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {
+    "mode": "concurrent",
+    "w": 4
+   }
+  },
+  "http-hnsw-100k-d128": {
+   "suite": "http",
+   "reps": [
+    {
+     "rep": 1,
+     "seconds": 8.342,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 2,
+     "seconds": 8.107,
+     "returncode": 0,
+     "status": "ok"
+    },
+    {
+     "rep": 3,
+     "seconds": 8.42,
+     "returncode": 0,
+     "status": "ok"
+    }
+   ],
+   "tool": "vf_http_bench",
+   "args": [
+    "--n",
+    "100000",
+    "--dim",
+    "128",
+    "--queries",
+    "2000",
+    "--ingest",
+    "50000",
+    "--batch",
+    "1000",
+    "--out",
+    "{out}"
+   ],
+   "env": {},
+   "bindings": {}
+  }
+ },
+ "finished": "2026-09-16T23:52:26.729184+00:00"
+}

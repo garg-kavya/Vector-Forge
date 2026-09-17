@@ -1,0 +1,71 @@
+{
+ "schema": 1,
+ "suite": "threads",
+ "git": {
+  "sha": "ceff91efdfdc-dirty"
+ },
+ "machine": {
+  "cpu": "AMD Ryzen 7 4800H with Radeon Graphics"
+ },
+ "build": {
+  "compiler": "MSVC 19.50.35728.0",
+  "type": "Release",
+  "simd_tier": "avx2",
+  "kernel_table": "avx2"
+ },
+ "params": {
+  "index": "hnsw",
+  "rows": 100000,
+  "dim": 128,
+  "metric": "l2",
+  "k": 10,
+  "ef_search": 64,
+  "queries": 20000,
+  "repeat": 5,
+  "hardware_threads": 16
+ },
+ "results": [
+  {
+   "threads": 1,
+   "qps_median": 10094.4,
+   "qps_min": 10017.7,
+   "qps_max": 10242,
+   "speedup": 1
+  },
+  {
+   "threads": 2,
+   "qps_median": 18828.2,
+   "qps_min": 15457.5,
+   "qps_max": 19535.8,
+   "speedup": 1.8652
+  },
+  {
+   "threads": 4,
+   "qps_median": 31181.8,
+   "qps_min": 30996.5,
+   "qps_max": 31922.8,
+   "speedup": 3.089
+  },
+  {
+   "threads": 8,
+   "qps_median": 41863.3,
+   "qps_min": 41724.5,
+   "qps_max": 42039.5,
+   "speedup": 4.14717
+  },
+  {
+   "threads": 12,
+   "qps_median": 44738.3,
+   "qps_min": 39637.1,
+   "qps_max": 45836.8,
+   "speedup": 4.43197
+  },
+  {
+   "threads": 16,
+   "qps_median": 47090.3,
+   "qps_min": 45463.9,
+   "qps_max": 47971.4,
+   "speedup": 4.66497
+  }
+ ]
+}

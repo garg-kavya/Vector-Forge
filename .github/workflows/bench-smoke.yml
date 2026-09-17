@@ -1,0 +1,44 @@
+name: Bench smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Benchmark harness smoke run (numbers are not meaningful on CI runners)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++-14
+          python -m pip install pytest matplotlib
+      - name: Harness unit tests
+        run: python -m pytest -q benchmarks/scripts/tests
+      - name: Build
+        run: |
+          cmake --preset linux-gcc-release -DCMAKE_CXX_COMPILER=g++-14
+          cmake --build --preset linux-gcc-release --target vf_bench vf_micro_bench
+      - name: Smoke suite
+        run: |
+          python benchmarks/scripts/run_suite.py benchmarks/configs/smoke.json \
+            --build-dir out/build/linux-gcc-release --out smoke-results
+          python benchmarks/scripts/make_readme_tables.py smoke-results
+          python benchmarks/scripts/plot_results.py smoke-results
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bench-smoke
+          path: smoke-results/

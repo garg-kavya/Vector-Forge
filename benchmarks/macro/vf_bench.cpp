@@ -87,6 +87,8 @@ struct Options {
   std::string concurrency = "concurrent";
   std::uint32_t writer_threads = 1;
   std::string queries_file;  // threads: .npy/.fvecs queries instead of generated ones
+  bool no_coarse_baseline = false;  // build: skip the serial Level A build
+  std::uint32_t build_threads = 1;  // save: threads for the build (Concurrent mode when > 1)
 };
 
 vf::Concurrency concurrency_of(const Options& o) {
@@ -164,8 +166,10 @@ int run_save(const Options& o, vf::Metric metric) {
   for (std::size_t i = 0; i < ids.size(); ++i) {
     ids[i] = i;
   }
+  const std::unique_ptr<vf::ThreadPool> build_pool =
+      o.build_threads > 1 ? std::make_unique<vf::ThreadPool>(o.build_threads - 1) : nullptr;
   const d::Stopwatch build_watch;
-  if (!c->add_batch(ids, base).ok()) {
+  if (!c->add_batch(ids, base, {}, build_pool.get()).ok()) {
     std::cerr << "build failed\n";
     return 1;
   }
@@ -185,11 +189,11 @@ int run_save(const Options& o, vf::Metric metric) {
        << "\", \"n\": " << o.n << ", \"dim\": " << o.dim << ", \"metric\": \""
        << vf::to_string(metric) << "\", \"seed\": " << o.seed << "},\n  \"params\": {\"index\": \""
        << o.index_type << "\", \"M\": " << o.m << ", \"ef_construction\": " << o.ef_construction
-       << ", \"threads\": 1},\n"
+       << ", \"threads\": " << o.build_threads << "},\n"
        << "  \"result\": {\"build_seconds\": " << build_seconds
        << ", \"save_seconds\": " << save_seconds << ", \"file_bytes\": " << bytes
        << ", \"save_mib_per_s\": " << static_cast<double>(bytes) / (1024.0 * 1024.0) / save_seconds
-       << "}\n}\n";
+       << ", \"peak_rss_bytes\": " << vf::bench::process_memory().peak_rss_bytes << "}\n}\n";
   emit(o, json.str());
   return 0;
 }
@@ -464,19 +468,21 @@ int run_build(const Options& o, vf::Metric metric) {
   cfg.hnsw.M = o.m;
   cfg.hnsw.ef_construction = o.ef_construction;
 
-  // Exact ground truth, computed in parallel.
+  // Exact ground truth, computed in parallel; the Flat copy is released before building.
   const auto hw = std::max<std::uint32_t>(std::thread::hardware_concurrency(), 2U);
   vf::ThreadPool gt_pool(hw - 1);
-  vf::CollectionConfig flat_cfg = cfg;
-  flat_cfg.index = vf::IndexType::Flat;
-  const std::unique_ptr<vf::Collection> flat = vf::Collection::create(flat_cfg).value();
-  static_cast<void>(flat->add_batch(ids, base));
-  vf::SearchParams exact;
-  exact.k = o.k;
   std::vector<ExternalId> gt_ids(nq * o.k);
   std::vector<float> gt_dist(nq * o.k);
   std::vector<std::uint32_t> counts(nq);
-  static_cast<void>(flat->search_batch(queries, nq, exact, gt_ids, gt_dist, counts, &gt_pool));
+  {
+    vf::CollectionConfig flat_cfg = cfg;
+    flat_cfg.index = vf::IndexType::Flat;
+    const std::unique_ptr<vf::Collection> flat = vf::Collection::create(flat_cfg).value();
+    static_cast<void>(flat->add_batch(ids, base));
+    vf::SearchParams exact;
+    exact.k = o.k;
+    static_cast<void>(flat->search_batch(queries, nq, exact, gt_ids, gt_dist, counts, &gt_pool));
+  }
 
   std::ostringstream json;
   json << "{\n  \"schema\": 1, \"suite\": \"build\",\n"
@@ -492,7 +498,10 @@ int run_build(const Options& o, vf::Metric metric) {
     vf::Concurrency mode;
     std::uint32_t threads;
   };
-  std::vector<Run> runs{{vf::Concurrency::Coarse, 1}};
+  std::vector<Run> runs;
+  if (!o.no_coarse_baseline) {
+    runs.push_back({vf::Concurrency::Coarse, 1});
+  }
   for (const std::uint32_t t : o.threads) {
     runs.push_back({vf::Concurrency::Concurrent, t});
   }
@@ -514,7 +523,7 @@ int run_build(const Options& o, vf::Metric metric) {
       }
     }
     const double seconds = sw.elapsed_seconds();
-    if (r == 0) {
+    if (r == 0 && !o.no_coarse_baseline) {
       coarse_seconds = seconds;
     }
     const auto& hnsw = static_cast<const d::HnswBackend&>(*d::CollectionFactory::state(*c).backend);
@@ -523,7 +532,10 @@ int run_build(const Options& o, vf::Metric metric) {
     const std::uint64_t unreachable = valid ? validator.reachability().unreachable_level0() : 0;
     json << "    {\"concurrency\": \"" << vf::to_string(runs[r].mode)
          << "\", \"threads\": " << runs[r].threads << ", \"build_seconds\": " << seconds
-         << ", \"speedup_vs_coarse\": " << coarse_seconds / seconds
+         << ", \"speedup_vs_coarse\": "
+         << (coarse_seconds > 0 ? std::to_string(coarse_seconds / seconds) : std::string("null"))
+         << ", \"index_bytes\": " << c->stats().memory.index_bytes
+         << ", \"peak_rss_bytes\": " << vf::bench::process_memory().peak_rss_bytes
          << ", \"valid\": " << (valid ? "true" : "false")
          << ", \"unreachable_level0\": " << unreachable
          << ", \"orphans_unrepaired\": " << hnsw.build_stats().orphans_unrepaired
@@ -549,6 +561,88 @@ int run_build(const Options& o, vf::Metric metric) {
   return 0;
 }
 
+// exact: Flat (brute-force) search on generated data (docs/DESIGN.md §16.3 "exact"): batch QPS
+// for each thread count, and per-query latency percentiles on one thread.
+int run_exact(const Options& o, vf::Metric metric) {
+  const auto n = static_cast<std::size_t>(o.n);
+  const auto nq = static_cast<std::size_t>(o.queries);
+  vf::CollectionConfig cfg;
+  cfg.dim = o.dim;
+  cfg.metric = metric;
+  cfg.index = vf::IndexType::Flat;
+  const std::unique_ptr<vf::Collection> c = vf::Collection::create(cfg).value();
+  {
+    std::vector<float> base = generate(o, o.n, o.seed);
+    std::vector<ExternalId> ids(n);
+    for (std::size_t i = 0; i < n; ++i) {
+      ids[i] = i;
+    }
+    if (!c->add_batch(ids, base).ok()) {
+      std::cerr << "add_batch failed\n";
+      return 1;
+    }
+  }
+  const std::vector<float> queries = generate(o, o.queries, o.seed + 1);
+  vf::SearchParams params;
+  params.k = o.k;
+  std::vector<ExternalId> out_ids(nq * o.k);
+  std::vector<float> out_dist(nq * o.k);
+  std::vector<std::uint32_t> counts(nq);
+
+  std::ostringstream json;
+  json << "{\n  \"schema\": 1, \"suite\": \"exact\",\n"
+       << environment_json() << "  \"dataset\": {\"distribution\": \"" << o.distribution
+       << "\", \"n\": " << o.n << ", \"dim\": " << o.dim << ", \"metric\": \""
+       << vf::to_string(metric) << "\", \"seed\": " << o.seed << "},\n"
+       << "  \"params\": {\"index\": \"flat\", \"k\": " << o.k << ", \"queries\": " << nq
+       << ", \"repeat\": " << o.repeat
+       << ", \"hardware_threads\": " << std::thread::hardware_concurrency() << "},\n";
+
+  // Per-query latency on the calling thread (first pass is a warm-up).
+  std::vector<double> latencies;
+  latencies.reserve(nq);
+  std::vector<vf::Neighbor> out(o.k);
+  for (int pass = 0; pass < 2; ++pass) {
+    latencies.clear();
+    for (std::size_t q = 0; q < nq; ++q) {
+      const d::Stopwatch sw;
+      static_cast<void>(
+          c->search_into(std::span<const float>(queries).subspan(q * o.dim, o.dim), params, out));
+      latencies.push_back(sw.elapsed_seconds());
+    }
+  }
+  std::sort(latencies.begin(), latencies.end());
+  double total = 0;
+  for (const double l : latencies) {
+    total += l;
+  }
+  json << "  \"latency_us\": {\"p50\": " << percentile(latencies, 50) * 1e6
+       << ", \"p95\": " << percentile(latencies, 95) * 1e6
+       << ", \"p99\": " << percentile(latencies, 99) * 1e6
+       << ", \"mean\": " << total / static_cast<double>(nq) * 1e6
+       << ", \"max\": " << latencies.back() * 1e6 << "},\n  \"results\": [\n";
+  for (std::size_t t = 0; t < o.threads.size(); ++t) {
+    const std::uint32_t threads = o.threads[t];
+    const std::unique_ptr<vf::ThreadPool> pool =
+        threads > 1 ? std::make_unique<vf::ThreadPool>(threads - 1) : nullptr;
+    std::vector<double> rounds;
+    for (std::uint32_t r = 0; r < o.repeat; ++r) {
+      const d::Stopwatch sw;
+      static_cast<void>(c->search_batch(queries, nq, params, out_ids, out_dist, counts, pool.get()));
+      rounds.push_back(static_cast<double>(nq) / sw.elapsed_seconds());
+    }
+    std::sort(rounds.begin(), rounds.end());
+    json << "    {\"threads\": " << threads << ", \"qps_median\": " << rounds[rounds.size() / 2]
+         << ", \"qps_min\": " << rounds.front() << ", \"qps_max\": " << rounds.back() << "}"
+         << (t + 1 < o.threads.size() ? "," : "") << "\n";
+    std::cerr << "exact threads=" << threads << " qps=" << rounds[rounds.size() / 2] << "\n";
+  }
+  json << "  ],\n  \"memory\": {\"vectors_bytes\": " << c->stats().memory.vectors_bytes
+       << ", \"peak_rss_bytes\": " << vf::bench::process_memory().peak_rss_bytes << "}\n}\n";
+  emit(o, json.str());
+  return 0;
+}
+
 int run(int argc, char** argv) {
   Options o;
   CLI::App app{"vf_bench: HNSW build + ef_search sweep against exact ground truth"};
@@ -570,11 +664,14 @@ int run(int argc, char** argv) {
   app.add_flag("--no-repair", o.no_repair, "disable new-node orphan repair");
   app.add_flag("--skip-flat-timing", o.skip_flat_timing, "do not time Flat queries");
   app.add_option("--out", o.out, "JSON output file (default: stdout only)");
-  app.add_option("--scenario", o.scenario, "sweep | save | load | threads | ingest | build")
-      ->check(CLI::IsMember({"sweep", "save", "load", "threads", "ingest", "build"}));
+  app.add_option("--scenario", o.scenario, "sweep | save | load | threads | ingest | build | exact")
+      ->check(CLI::IsMember({"sweep", "save", "load", "threads", "ingest", "build", "exact"}));
   app.add_option("--concurrency", o.concurrency, "ingest/build: coarse | concurrent")
       ->check(CLI::IsMember({"coarse", "concurrent"}));
   app.add_option("--queries-file", o.queries_file, "threads: query vectors (.npy or .fvecs)");
+  app.add_flag("--no-coarse-baseline", o.no_coarse_baseline, "build: skip the serial Level A build");
+  app.add_option("--build-threads", o.build_threads, "save: build threads")
+      ->check(CLI::Range(1U, 256U));
   app.add_option("--writer-threads", o.writer_threads, "ingest: threads of the add_batch writer")
       ->check(CLI::Range(1U, 256U));
   app.add_option("--threads", o.threads, "threads: thread counts")->delimiter(',');
@@ -624,6 +721,9 @@ int run(int argc, char** argv) {
   }
   if (o.scenario == "build") {
     return run_build(o, metric.value());
+  }
+  if (o.scenario == "exact") {
+    return run_exact(o, metric.value());
   }
   vf::HnswParams params;
   params.M = o.m;
@@ -779,7 +879,8 @@ int run(int argc, char** argv) {
        << ", \"orphans_unrepaired\": " << hnsw->build_stats().orphans_unrepaired
        << ", \"index_bytes\": " << hnsw->stats().index_bytes
        << ", \"invariants_ok\": " << (invariants.ok() ? "true" : "false")
-       << ", \"unreachable_level0\": " << reach.unreachable_level0() << "},\n";
+       << ", \"unreachable_level0\": " << reach.unreachable_level0()
+       << ", \"peak_rss_bytes\": " << vf::bench::process_memory().peak_rss_bytes << "},\n";
   if (!o.skip_flat_timing) {
     json << "  \"flat\": {\"seconds\": " << flat_seconds
          << ", \"qps\": " << static_cast<double>(nq) / flat_seconds
