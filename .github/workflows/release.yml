@@ -15,7 +15,8 @@ permissions:
   contents: read
 
 env:
-  SOURCE_DATE_EPOCH: "0"
+  # 1980-01-01: the earliest time a zip (and so a wheel) can store.
+  SOURCE_DATE_EPOCH: "315532800"
   PUBLISH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
