@@ -86,7 +86,7 @@ struct Options {
   // ingest / build: HNSW insert synchronisation, and threads used by the ingest writer
   std::string concurrency = "concurrent";
   std::uint32_t writer_threads = 1;
-  std::string queries_file;  // threads: .npy/.fvecs queries instead of generated ones
+  std::string queries_file;         // threads: .npy/.fvecs queries instead of generated ones
   bool no_coarse_baseline = false;  // build: skip the serial Level A build
   std::uint32_t build_threads = 1;  // save: threads for the build (Concurrent mode when > 1)
 };
@@ -628,7 +628,8 @@ int run_exact(const Options& o, vf::Metric metric) {
     std::vector<double> rounds;
     for (std::uint32_t r = 0; r < o.repeat; ++r) {
       const d::Stopwatch sw;
-      static_cast<void>(c->search_batch(queries, nq, params, out_ids, out_dist, counts, pool.get()));
+      static_cast<void>(
+          c->search_batch(queries, nq, params, out_ids, out_dist, counts, pool.get()));
       rounds.push_back(static_cast<double>(nq) / sw.elapsed_seconds());
     }
     std::sort(rounds.begin(), rounds.end());
@@ -669,7 +670,8 @@ int run(int argc, char** argv) {
   app.add_option("--concurrency", o.concurrency, "ingest/build: coarse | concurrent")
       ->check(CLI::IsMember({"coarse", "concurrent"}));
   app.add_option("--queries-file", o.queries_file, "threads: query vectors (.npy or .fvecs)");
-  app.add_flag("--no-coarse-baseline", o.no_coarse_baseline, "build: skip the serial Level A build");
+  app.add_flag("--no-coarse-baseline", o.no_coarse_baseline,
+               "build: skip the serial Level A build");
   app.add_option("--build-threads", o.build_threads, "save: build threads")
       ->check(CLI::Range(1U, 256U));
   app.add_option("--writer-threads", o.writer_threads, "ingest: threads of the add_batch writer")
