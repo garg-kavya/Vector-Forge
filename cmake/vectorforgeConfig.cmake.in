@@ -1,0 +1,8 @@
+# CMake package for VectorForge: find_package(vectorforge) -> target vectorforge::vectorforge.
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
+include("${CMAKE_CURRENT_LIST_DIR}/vectorforgeTargets.cmake")
+check_required_components(vectorforge)

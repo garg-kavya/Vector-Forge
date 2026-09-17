@@ -18,6 +18,7 @@ set(VF_CORE_SOURCES
   storage/format.cpp
   storage/id_map.cpp
   util/dataset_io.cpp
+  util/log.cpp
   util/recall.cpp
   util/synthetic.cpp
   core/build_info.cpp
@@ -46,6 +47,7 @@ target_include_directories(vectorforge
   PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${VF_GENERATED_INCLUDE_DIR}>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 

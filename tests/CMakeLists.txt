@@ -20,6 +20,7 @@ add_executable(vf_unit_tests
   unit/test_id_map.cpp
   unit/test_kernels.cpp
   unit/test_level_generator.cpp
+  unit/test_log.cpp
   unit/test_mapped_file.cpp
   unit/test_model_flat.cpp
   unit/test_neighbor_select.cpp
@@ -158,6 +159,7 @@ if(VF_BUILD_SERVER)
   # HTTP tests: a server on a free loopback port per test.
   add_executable(vf_http_tests
     http/test_limits.cpp
+    http/test_metrics.cpp
     http/test_routes.cpp
     http/test_shutdown.cpp
   )
@@ -238,4 +240,28 @@ if(VF_BUILD_CLI)
                        cli.build cli.info cli.verify cli.search cli.verify_rejects_non_index
                        PROPERTIES LABELS integration)
   file(MAKE_DIRECTORY ${vf_cli_smoke_dir})
+endif()
+
+# C++ quickstart (examples/cpp) built in-tree, and against an installed package ------------------
+add_executable(vf_example_quickstart ${PROJECT_SOURCE_DIR}/examples/cpp/quickstart.cpp)
+target_link_libraries(vf_example_quickstart PRIVATE vectorforge::vectorforge)
+vf_set_project_options(vf_example_quickstart)
+add_test(NAME example.cpp_quickstart COMMAND vf_example_quickstart
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+set_tests_properties(example.cpp_quickstart PROPERTIES LABELS integration
+                     PASS_REGULAR_EXPRESSION "nearest: 42")
+
+# Sanitizer runtimes would have to be linked into the consumer as well; the check runs elsewhere.
+if(NOT VF_SANITIZE)
+  add_test(NAME install.consumer
+           COMMAND ${CMAKE_COMMAND}
+                   -DBUILD_DIR=${PROJECT_BINARY_DIR}
+                   -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+                   -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/install-consumer
+                   "-DGENERATOR=${CMAKE_GENERATOR}"
+                   -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+                   -DBUILD_TYPE=$<CONFIG>
+                   "-DEXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
+                   -P ${CMAKE_CURRENT_SOURCE_DIR}/install/run_consumer_test.cmake)
+  set_tests_properties(install.consumer PROPERTIES LABELS integration TIMEOUT 600)
 endif()

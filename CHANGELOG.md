@@ -131,6 +131,17 @@ All notable changes to this project are documented here. The format follows
   Full results for this laptop in
   `benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_suite` (tables, plots, not-run list).
 
+- Phase 10: observability and release. `GET /metrics` in Prometheus text format (request
+  counters and latency histograms per route, in-flight requests, per-collection size, deleted
+  rows, memory and snapshot generation, uptime, build info); structured logfmt logging
+  (`vectorforge serve --log-level`, `--access-log`); `Catalog::list()` reports deleted rows and
+  memory. CMake install and export (`find_package(vectorforge)` →
+  `vectorforge::vectorforge`) with a consumer test, `examples/cpp/quickstart.cpp` run as a test.
+  Sanitizer workflow, release workflow (CLI archives with checksums, wheels, Docker image,
+  release notes from this file), `tools/package_release.py`, `tools/release_notes.py`.
+  `docs/architecture.md`, `docs/testing.md`, `docs/configuration.md`, ADRs 0001/0004/0005, final
+  README.
+
 - Fault-injection tests (`test_exception_safety`): every allocation of every insert fails in turn;
   failed inserts must leave collections unchanged and fully searchable. Concurrent-read test
   (`vf_concurrency_tests`) for the const-member thread-safety contract, clean under TSan.

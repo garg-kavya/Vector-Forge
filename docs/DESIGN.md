@@ -2120,6 +2120,30 @@ flowchart LR
 - **Tests:** metrics endpoint format; install test (`find_package(vectorforge)` consumer project in CI).
 - **Acceptance:** all workflows green; release dry-run produces binaries + wheels + image; README has architecture
   overview, quickstarts (C++, CLI, HTTP, Python), design highlights, measured results, limitations.
+- **Implementation notes (as built):** settings, log format and metric names are in
+  `docs/configuration.md`; the architecture and test layout in `docs/architecture.md` and
+  `docs/testing.md`.
+  - `GET /metrics` (17th route, authenticated like `/v1`): request counters by method, OpenAPI
+    route pattern and status class (unmatched paths share one `unmatched` label so the label set
+    stays bounded), fixed-bucket latency histograms (50 µs … 10 s, atomic counters), in-flight
+    gauge, per-collection gauges read from `Catalog::list()` (which now also reports deleted rows
+    and memory), uptime and build info. The route wrapper records every response, including
+    401/503 and handler exceptions.
+  - `vf::log` (internal, `src/util/log.*`): logfmt lines with UTC millisecond timestamps, level
+    filter, replaceable sink for tests; values are quoted and escaped so request data cannot
+    split or forge lines. `vectorforge serve --log-level`, `--access-log`.
+  - Install/export: `vectorforge::vectorforge` via `find_package(vectorforge CONFIG)` (headers,
+    static library, generated version header, CLI, docs). CTest `install.consumer` installs into a
+    temporary prefix and builds `tests/install/consumer` against it (skipped in sanitizer builds);
+    `example.cpp_quickstart` runs `examples/cpp/quickstart.cpp`.
+  - Workflows: sanitizer jobs moved from `ci.yml` to `sanitizers.yml` (Linux ASan+UBSan, TSan,
+    Windows MSVC ASan); `release.yml` on `v*` tags builds CLI archives (`tools/package_release.py`,
+    deterministic archives with `.sha256`), wheels (cibuildwheel), the Docker image (pushed to
+    GHCR on tags only) and a GitHub release with notes from `CHANGELOG.md`
+    (`tools/release_notes.py`); a manual run builds the artifacts without publishing. `fuzz.yml`, `nightly.yml` and `bench-smoke.yml` were already in place.
+  - ADRs added for the error model (0001), the HTTP stack (0004) and generation snapshots (0005).
+  - Release dry run done locally for the Windows archive and the wheel; the Docker image and
+    Linux archives are produced only by the workflow (no Docker engine on the development machine).
 
 ---
 

@@ -38,6 +38,8 @@ struct CatalogEntry {
   std::string name;
   CollectionConfig config;
   std::uint64_t size = 0;             // live vectors
+  std::uint64_t deleted = 0;          // removed vectors not yet compacted
+  std::uint64_t memory_bytes = 0;     // CollectionStats::memory.total_bytes()
   std::uint64_t last_generation = 0;  // 0: never snapshotted
 };
 

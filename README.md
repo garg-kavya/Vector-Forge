@@ -1,38 +1,46 @@
 # VectorForge
 
 VectorForge is a C++20 vector similarity search engine built from first principles: exact
-(brute-force) and approximate (HNSW) k-nearest-neighbour search over float32 vectors, with SIMD
-distance kernels, a thread pool, a versioned on-disk format with memory-mapped vectors, an HTTP API
-and Python bindings.
+(brute-force) and approximate (HNSW) k-nearest-neighbour search over float32 vectors, with AVX2
+distance kernels chosen at runtime, concurrent insertion and search, a checksummed on-disk format
+with memory-mapped vectors, an HTTP/JSON server, a CLI and Python bindings.
 
-> **Status:** early development — Phases 0–8 of the [engineering design](docs/DESIGN.md) are
-> complete: toolchain; core types, deterministic RNG, scalar distance kernels, vector storage; exact
-> (Flat) search, dataset I/O and the `vectorforge gen-data` / `ground-truth` CLI; single-threaded
-> HNSW approximate search ([docs/hnsw.md](docs/hnsw.md)); checksummed, crash-safe persistence with
-> memory-mapped loading and the `build` / `search` / `info` / `verify` CLI
-> ([docs/storage-format.md](docs/storage-format.md)); AVX2 + FMA distance kernels selected at runtime
-> ([docs/simd.md](docs/simd.md)); a thread pool, parallel batch search and a fully thread-safe
-> `Collection` with a fair reader/writer lock and concurrent HNSW insertion
-> ([docs/concurrency.md](docs/concurrency.md)); an HTTP/JSON server over a catalog of named
-> collections ([docs/http-api.md](docs/http-api.md)); Python bindings
-> ([docs/python-api.md](docs/python-api.md)).
+Status: all phases of the [engineering design](docs/DESIGN.md) are implemented (version 0.1.0,
+not yet released). It is a single-node engine developed and measured on one laptop; read
+[Limitations](#limitations) before relying on it.
 
-## Quick start (current API)
+## Contents
+
+- [Quick start](#quick-start): [C++](#c) · [CLI](#cli) · [HTTP](#http) · [Python](#python)
+- [Architecture](#architecture)
+- [Design highlights](#design-highlights)
+- [Performance](#performance)
+- [Limitations](#limitations)
+- [Building](#building) · [Repository layout](#repository-layout) · [Documentation](#documentation)
+
+## Quick start
+
+### C++
 
 ```cpp
-#include <vectorforge/collection.hpp>
+#include <vectorforge/vectorforge.hpp>
 
 vf::CollectionConfig cfg;
 cfg.dim = 3;
 cfg.metric = vf::Metric::Cosine;
 cfg.index = vf::IndexType::Hnsw;  // default; IndexType::Flat for exact search
 auto col = vf::Collection::create(cfg).value();
-if (vf::Status st = col->add(42, std::vector<float>{0.1F, 0.2F, 0.3F}); !st.ok()) {
-  std::fprintf(stderr, "%s\n", st.to_string().c_str());
+
+std::vector<vf::ExternalId> ids{1, 2};
+std::vector<float> rows{0.1F, 0.2F, 0.3F, 0.3F, 0.2F, 0.1F};
+vf::ThreadPool pool(4);                                   // optional
+if (auto added = col->add_batch(ids, rows, {}, &pool); !added.ok()) {
+  std::fprintf(stderr, "%s\n", added.status().to_string().c_str());
 }
+
 vf::SearchParams params;
 params.k = 5;
-params.ef_search = 64;  // HNSW beam width (recall/latency trade-off)
+params.ef_search = 64;  // HNSW beam width: recall/latency trade-off
 auto hits = col->search(std::vector<float>{0.1F, 0.2F, 0.25F}, params).value();  // ascending distance
 
 if (vf::Status st = col->save("docs.vfidx"); !st.ok()) {  // atomic write
@@ -40,6 +48,11 @@ if (vf::Status st = col->save("docs.vfidx"); !st.ok()) {  // atomic write
 }
 auto reopened = vf::Collection::load("docs.vfidx").value();  // vectors memory-mapped
 ```
+
+As a package: `find_package(vectorforge REQUIRED)` and link `vectorforge::vectorforge` after
+`cmake --install`; see [examples/cpp/quickstart.cpp](examples/cpp/quickstart.cpp).
+
+### CLI
 
 ```bash
 vectorforge gen-data --n 100000 --dim 128 --seed 1 --format fvecs --out base.fvecs
@@ -51,8 +64,12 @@ vectorforge verify idx.vfidx
 vectorforge search --index idx.vfidx --queries queries.fvecs --k 10 --ef 100 --gt gt
 ```
 
+The pipeline reads TEXMEX (SIFT-format) `.fvecs`/`.ivecs` and NumPy `.npy` files.
+
+### HTTP
+
 ```bash
-vectorforge serve --data-dir ./data &          # 127.0.0.1:8080; docker compose up works too
+vectorforge serve --data-dir ./data &          # 127.0.0.1:8080; or: docker compose up --build
 curl -X POST localhost:8080/v1/collections -H 'Content-Type: application/json' \
   -d '{"name": "docs", "dim": 3, "metric": "cosine"}'
 curl -X POST localhost:8080/v1/collections/docs/vectors -H 'Content-Type: application/json' \
@@ -60,7 +77,13 @@ curl -X POST localhost:8080/v1/collections/docs/vectors -H 'Content-Type: applic
 curl -X POST localhost:8080/v1/collections/docs/search -H 'Content-Type: application/json' \
   -d '{"vector": [0.1, 0.2, 0.25], "k": 5}'
 curl -X POST localhost:8080/v1/collections/docs/snapshot   # durable from here on
+curl localhost:8080/metrics                                  # Prometheus
 ```
+
+Reference: [docs/http-api.md](docs/http-api.md), [OpenAPI](docs/openapi.yaml),
+[walkthrough](examples/http/curl_examples.sh).
+
+### Python
 
 ```python
 import numpy as np, vectorforge as vf        # pip install ./python
@@ -71,43 +94,48 @@ labels, distances = index.search(np.ones((3, 128), dtype=np.float32), k=5)  # (3
 index.save("docs.vfidx")
 ```
 
-A batch search from Python runs at the speed of the C++ call
-([results](benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_phase8/README.md)).
-The HTTP API ([docs/http-api.md](docs/http-api.md), [OpenAPI](docs/openapi.yaml)) adds about
-0.2 ms per query on loopback, and binary bulk ingestion is ~23× faster than JSON
-([results](benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_phase7/README.md)).
+Reference: [docs/python-api.md](docs/python-api.md), [quickstart](examples/python/quickstart.py).
 
-The pipeline reads TEXMEX (SIFT-format) `.fvecs` vectors and `.ivecs` ground truth
-(`--gt groundtruth.ivecs`); it is tested with generated files of that format, not with the SIFT1M
-download itself.
+## Architecture
 
-Distance kernels use AVX2 + FMA when the CPU supports them and scalar code otherwise; set
-`VF_SIMD=scalar` to force the scalar tier (for example to compare results or timings with the same
-binary). On the development laptop (Ryzen 7 4800H, MSVC, one thread) AVX2 made HNSW queries over
-100 000 × 128-d vectors 1.88× faster at recall 0.991 and Flat scans 2.97× faster
-([results](benchmarks/results/2026-09-14_ryzen7-4800h_msvc-release_phase5/README.md)).
+```text
+ frontends     vectorforge CLI · HTTP server (vf_server) · Python module · benchmarks
+ ─────────────────────── public API: include/vectorforge/*.hpp ───────────────────────
+ collection    Catalog (named collections, snapshots) · Collection (thread-safe façade)
+ index         FlatBackend (blocked exact scan) · HnswBackend (graph, insert, search, validator)
+ search        bounded heaps · visited sets · pooled search contexts
+ storage       chunked VectorStore with mmap base · IdMap · tombstones · .vfidx format · CRC-32C
+ simd          CPU feature detection · kernel table (scalar | AVX2+FMA)
+ concurrency   ThreadPool · fair reader/writer lock · striped mutexes
+ core          Status/Result · types · validation · RNG
+```
 
-`vf::Collection` may be shared between threads: searches run in parallel, mutations are serialised,
-and `compact()` rebuilds without blocking searches; HNSW rows are linked into the graph while
-searches run. Pass a `vf::ThreadPool` to `search_batch` / `add_batch` (or `--threads` to
-`ground-truth` / `build`) to use several cores. On the same laptop, batch HNSW search reached 4.8×
-at 16 threads and HNSW construction 6.2× at 8 threads (100 000 × 128-d, recall unchanged), and
-searches during ingestion kept a 0.084 ms median
-([6a](benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6a/README.md),
-[6b](benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6b/README.md)).
+The core library has no third-party dependencies. Details: [docs/architecture.md](docs/architecture.md).
 
-## Goals
+## Design highlights
 
-- Exact k-NN and HNSW approximate search under L2, inner product and cosine metrics
-- Scalar reference kernels plus AVX2/FMA kernels selected at runtime
-- Concurrent searches with documented thread-safety guarantees
-- Crash-safe, checksummed, versioned persistence with mmap-backed vector storage
-- HTTP/JSON API, CLI and Python (pybind11/NumPy) frontends
-- Correctness verified against brute-force ground truth; sanitizer-clean test suite
-- Reproducible benchmarks with full environment metadata
-
-See [docs/DESIGN.md](docs/DESIGN.md) for architecture, algorithms, concurrency arguments, storage
-format, API design, test and benchmark methodology, and the phased implementation plan.
+- **HNSW from the paper**, with heuristic neighbour selection, orphan repair, deterministic levels
+  derived from `(seed, id)`, tombstones kept as navigation hubs, and a graph validator used by every
+  build test ([docs/hnsw.md](docs/hnsw.md)).
+- **Runtime SIMD dispatch**: one portable binary; AVX2+FMA kernels live in a single object file
+  with its own flags, and a CI check proves no AVX instruction leaks elsewhere
+  ([docs/simd.md](docs/simd.md), [ADR-0002](docs/adr/0002-runtime-simd-dispatch.md)).
+- **Concurrent insertion with lock-free readers**: rows are appended in short exclusive sections
+  and linked into the graph under a shared lock with atomic link lists and striped writer locks;
+  searches keep a 0.08 ms median during ingestion instead of 2.3 ms, and builds run 6.2× faster on
+  8 cores with the same recall ([docs/concurrency.md](docs/concurrency.md),
+  [ADR-0003](docs/adr/0003-concurrent-hnsw-insert.md)). A fair reader/writer lock replaced
+  `std::shared_mutex` after it was measured starving searches for 0.7 s.
+- **Untrusted files**: every `.vfidx` section is checksummed and structurally validated; loads are
+  fuzzed; saves are atomic and crash-tested at every step; snapshots are generation files behind an
+  atomically replaced manifest ([docs/storage-format.md](docs/storage-format.md),
+  [ADR-0005](docs/adr/0005-generation-snapshots.md)).
+- **Errors as values**: `Status`/`Result` with stable codes mapped to HTTP status codes and Python
+  exceptions; allocation failures keep documented guarantees, verified by injecting a failure
+  into every allocation of every insert ([ADR-0001](docs/adr/0001-status-result-errors.md)).
+- **Measured, not assumed**: every number below comes from a committed result file with its
+  environment; ablations (prefetch, neighbour selection, accumulators, visited sets, lock
+  designs) are kept, including the ones that did not help.
 
 ## Performance
 
@@ -190,12 +218,40 @@ files by `benchmarks/scripts/make_readme_tables.py`.
 Raw data, environment and interpretation: [benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_suite](benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_suite/README.md).
 <!-- BENCHMARKS:END -->
 
+Reading the tables: exact search is memory-bound beyond a few threads once the data outgrows the
+cache; thread-scaling points above 12 threads are noisy on this desktop machine (see the suite
+README); HNSW needs a larger `ef_search` as collections grow (recall 0.79 at ef = 64 but 0.99 at
+ef = 512 for 1 M × 128-d); the data is synthetic, and no real-dataset runs are included yet.
+
 Earlier focused measurements: SIMD
 ([phase 5](benchmarks/results/2026-09-14_ryzen7-4800h_msvc-release_phase5/README.md)), locking
 and thread scaling ([6a](benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6a/README.md),
 [6b](benchmarks/results/2026-09-16_ryzen7-4800h_msvc-release_phase6b/README.md)), HTTP overhead
 ([7](benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_phase7/README.md)), Python overhead
 ([8](benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_phase8/README.md)).
+
+## Limitations
+
+- **Single node, single machine measurements.** No replication, sharding or distributed search.
+  All numbers come from one laptop with synthetic data; real datasets (SIFT1M, GloVe, embedding
+  sets) are supported by the tools but were not downloaded or measured.
+- **Durability is explicit.** Inserts are in memory until a snapshot (`save`, `POST …/snapshot`,
+  `--snapshot-on-exit`); there is no write-ahead log.
+- **Memory.** Vectors, ids and the graph are kept in RAM (vectors can be memory-mapped after a
+  load, but new inserts go to the heap). 1M × 1536-d did not fit the 16 GB development machine
+  alongside the benchmark's own copies.
+- **Deletes are tombstones** until `compact()` rebuilds the collection; heavy delete workloads
+  need periodic compaction.
+- **Float32 only**; no quantisation, product codes, filtering by metadata or hybrid search.
+- **Platforms.** Tested on Windows (MSVC, MinGW) and Linux (GCC, Clang) on x86-64. macOS and ARM
+  builds are not tested; the AVX2 tier is x86-64 only (other CPUs use the scalar kernels).
+- **HTTP.** No TLS (use a proxy), a single optional bearer token, no per-user authorisation or
+  rate limiting. JSON ingestion is ~23× slower than the binary endpoint.
+- **Level B details.** A parallel build is not bit-identical to a serial one; a rare allocation
+  failure while linking leaves a tombstoned row; `add()` of a single vector still takes the
+  exclusive lock.
+- **Release artifacts** (wheels, image, archives) are produced by the release workflow; the Docker
+  image and wheels for Linux were built only in CI, not on the development machine.
 
 ## Building
 
@@ -211,9 +267,11 @@ third-party dependencies.
 cmake --preset msvc-release
 cmake --build --preset msvc-release
 ctest --preset msvc-release
+cmake --install out/build/msvc-release --prefix C:/opt/vectorforge
 ```
 
-Other presets: `msvc-debug`, `msvc-asan` (AddressSanitizer, optimised with assertions), `mingw-release` (compile check).
+Other presets: `msvc-debug`, `msvc-asan` (AddressSanitizer, optimised with assertions),
+`mingw-release`.
 
 ### Linux
 
@@ -223,7 +281,9 @@ cmake --build --preset linux-gcc-release
 ctest --preset linux-gcc-release
 ```
 
-Sanitizer presets: `linux-clang-asan-ubsan`, `linux-clang-tsan`, `linux-clang-fuzz` (libFuzzer; run `tools/fuzz_index_reader.sh out/build/linux-clang-fuzz 600`).
+Sanitizer presets: `linux-clang-asan-ubsan`, `linux-clang-tsan`, `linux-clang-fuzz` (libFuzzer;
+`tools/fuzz_index_reader.sh` and `tools/fuzz_json_request.sh`). Testing guide:
+[docs/testing.md](docs/testing.md).
 
 ### Useful CMake options
 
@@ -231,29 +291,44 @@ Sanitizer presets: `linux-clang-asan-ubsan`, `linux-clang-tsan`, `linux-clang-fu
 |---|---|---|
 | `VF_BUILD_TESTS` | ON | GoogleTest suites |
 | `VF_BUILD_BENCHMARKS` | ON | Google Benchmark micro benchmarks and `vf_bench` (needs `VF_BUILD_CLI`) |
+| `VF_BUILD_CLI` | ON | the `vectorforge` tool |
+| `VF_BUILD_SERVER` | ON | HTTP server library and `vectorforge serve` |
+| `VF_BUILD_PYTHON` | OFF | build the Python module in-tree (`pip install ./python` is the usual route) |
 | `VF_SANITIZE` | empty | `address`, `address;undefined`, or `thread` |
 | `VF_WARNINGS_AS_ERRORS` | OFF (ON in presets) | treat warnings as errors |
 | `VF_ENABLE_AVX2` | ON | compile AVX2 kernels for runtime dispatch (x86-64) |
 | `VF_NATIVE` | OFF | build for the host CPU (benchmark comparisons only) |
 | `VF_ENABLE_ASSERTS` | OFF | keep internal assertions in optimised builds |
 | `VF_BUILD_FUZZERS` | OFF | libFuzzer targets (Clang; preset `linux-clang-fuzz`) |
-| `VF_BUILD_SERVER` | ON | HTTP server library and `vectorforge serve` |
-| `VF_BUILD_PYTHON` | OFF | build the Python module in-tree (`pip install ./python` is the usual route) |
+| `VF_USE_SYSTEM_DEPS` | OFF | use installed packages instead of fetching dependencies |
+
+Runtime settings (environment variables, server options, logging, metrics):
+[docs/configuration.md](docs/configuration.md).
 
 ## Repository layout
 
-```
-include/vectorforge/   public headers
-src/                   library implementation (internal headers)
+```text
+include/vectorforge/   public headers (installed)
+src/                   library implementation; src/server is the HTTP server
 apps/cli/              vectorforge command-line tool (including `serve`)
 python/                Python package (pybind11) and its pytest suite
-tests/                 GoogleTest suites
-benchmarks/            micro (Google Benchmark) and macro (vf_bench) benchmarks, committed results
-cmake/                 build modules (warnings, sanitizers, SIMD flags, dependencies)
-examples/              curl walkthrough, Python quickstart
-tools/                 developer scripts (golden files, fuzzing, ISA leak check, OpenAPI check)
-docs/                  design document, component docs, OpenAPI spec, architecture decision records
+tests/                 GoogleTest suites, fuzz targets, install test
+benchmarks/            micro and macro benchmarks, suite configs and scripts, committed results
+examples/              C++ quickstart, curl walkthrough, Python quickstart
+cmake/                 build modules (warnings, sanitizers, SIMD flags, dependencies, package config)
+tools/                 developer scripts (golden files, fuzzing, ISA leak check, OpenAPI check,
+                       datasets, release packaging)
+docs/                  design document, component docs, OpenAPI spec, ADRs
 ```
+
+## Documentation
+
+[Design](docs/DESIGN.md) · [Architecture](docs/architecture.md) · [HNSW](docs/hnsw.md) ·
+[SIMD](docs/simd.md) · [Concurrency](docs/concurrency.md) ·
+[Storage format](docs/storage-format.md) · [HTTP API](docs/http-api.md) ·
+[Python API](docs/python-api.md) · [Configuration](docs/configuration.md) ·
+[Testing](docs/testing.md) · [Benchmarking](docs/benchmarking.md) · [ADRs](docs/adr/) ·
+[Changelog](CHANGELOG.md)
 
 ## License
 

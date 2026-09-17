@@ -9,6 +9,7 @@
 
 #include "commands.hpp"
 #include "server/server.hpp"
+#include "util/log.hpp"
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -76,14 +77,25 @@ Status run_serve(const ServeOptions& options, std::ostream& log) {
       << options.data_dir.string() << " on http://" << options.server.host << ":" << server.port()
       << '\n'
       << std::flush;
+  vf::log::write(vf::log::Level::Info, "server_started",
+                 {{"host", options.server.host},
+                  {"port", server.port()},
+                  {"collections", catalog.value()->size()},
+                  {"auth", !options.server.api_key.empty()}});
   while (!g_stop_requested.load()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   log << "shutting down\n" << std::flush;
+  vf::log::write(vf::log::Level::Info, "server_stopping");
   server.stop();
   if (options.snapshot_on_exit) {
-    VF_RETURN_IF_ERROR(catalog.value()->snapshot_all());
+    const Status snapshots = catalog.value()->snapshot_all();
+    if (!snapshots.ok()) {
+      vf::log::write(vf::log::Level::Error, "snapshot_failed", {{"error", snapshots.to_string()}});
+      return snapshots;
+    }
     log << "snapshots written\n" << std::flush;
+    vf::log::write(vf::log::Level::Info, "snapshots_written");
   }
   return {};
 }

@@ -1,6 +1,7 @@
 # HTTP server library (docs/http-api.md). Depends on the public library API only.
 add_library(vf_server STATIC
   json_codec.cpp
+  metrics.cpp
   server.cpp
 )
 add_library(vectorforge::server ALIAS vf_server)

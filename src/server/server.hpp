@@ -36,6 +36,7 @@ struct ServerConfig {
   std::chrono::seconds write_timeout{30};
   std::chrono::seconds keep_alive_timeout{5};
   std::chrono::milliseconds drain_timeout{10000};
+  bool access_log = false;  // one log line per request (vf::log, level info)
 };
 
 struct RouteInfo {

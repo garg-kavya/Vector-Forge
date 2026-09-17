@@ -365,9 +365,12 @@ std::vector<CatalogEntry> Catalog::entries() const {
   std::vector<CatalogEntry> out;
   out.reserve(copies.size());
   for (const auto& [name, slot] : copies) {
+    const CollectionStats stats = slot.collection->stats();
     out.push_back({.name = name,
                    .config = slot.collection->config(),
-                   .size = slot.collection->size(),
+                   .size = stats.live_count,
+                   .deleted = stats.deleted_count,
+                   .memory_bytes = stats.memory.total_bytes(),
                    .last_generation = slot.generation});
   }
   return out;

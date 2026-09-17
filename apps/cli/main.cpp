@@ -15,6 +15,7 @@
 #include <vectorforge/version.hpp>
 
 #include "commands.hpp"
+#include "util/log.hpp"
 
 #include <CLI/CLI.hpp>
 
@@ -228,6 +229,11 @@ int run(int argc, char** argv) {
   serve_cmd->add_flag("--snapshot-on-exit", serve.snapshot_on_exit,
                       "Snapshot every collection after a graceful shutdown");
   serve_cmd->add_flag("--list-routes", serve_list_routes, "Print the route table and exit");
+  std::string serve_log_level = "info";
+  serve_cmd->add_option("--log-level", serve_log_level, "debug | info | warn | error | off")
+      ->capture_default_str()
+      ->check(CLI::IsMember({"debug", "info", "warn", "error", "off"}));
+  serve_cmd->add_flag("--access-log", serve.server.access_log, "Log one line per request");
 #endif
 
   CLI11_PARSE(app, argc, argv);
@@ -255,6 +261,9 @@ int run(int argc, char** argv) {
     serve.server.limits.max_body_bytes = serve_max_body_mb << 20U;
     serve.server.drain_timeout = std::chrono::seconds(serve_drain_seconds);
     serve.use_mmap = !serve_no_mmap;
+    vf::log::Level level = vf::log::Level::Info;
+    static_cast<void>(vf::log::parse_level(serve_log_level, level));
+    vf::log::set_level(level);
     return report(vf::cli::run_serve(serve, std::cout));
   }
 #endif

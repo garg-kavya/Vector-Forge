@@ -24,6 +24,8 @@
 #include <vectorforge/version.hpp>
 
 #include "server/json_codec.hpp"
+#include "server/metrics.hpp"
+#include "util/log.hpp"
 
 namespace vf::server {
 
@@ -41,6 +43,7 @@ constexpr std::array kRoutes{
     RouteInfo{"GET", "/healthz"},
     RouteInfo{"GET", "/readyz"},
     RouteInfo{"GET", "/v1/status"},
+    RouteInfo{"GET", "/metrics"},
     RouteInfo{"POST", "/v1/collections"},
     RouteInfo{"GET", "/v1/collections"},
     RouteInfo{"GET", "/v1/collections/{name}"},
@@ -92,6 +95,23 @@ void send_json(httplib::Response& res, int http_status, std::string body) {
   res.set_content(std::move(body), std::string(kJson));
 }
 
+// Index into kRoutes of a registered pattern (the OpenAPI path with regexes for parameters).
+std::size_t route_index(std::string_view method, std::string pattern) {
+  const auto replace = [&pattern](std::string_view from, std::string_view to) {
+    if (const auto pos = pattern.find(from); pos != std::string::npos) {
+      pattern.replace(pos, from.size(), to);
+    }
+  };
+  replace(kName, "{name}");
+  replace(R"((\d{1,20}))", "{id}");
+  for (std::size_t i = 0; i < kRoutes.size(); ++i) {
+    if (kRoutes[i].method == method && kRoutes[i].path == pattern) {
+      return i;
+    }
+  }
+  return kRoutes.size();
+}
+
 bool parse_id(const std::string& text, ExternalId& out) {
   const auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), out);
   return ec == std::errc{} && ptr == text.data() + text.size() && out != kInvalidExternalId;
@@ -123,6 +143,7 @@ struct Server::Impl {
   std::atomic<bool> started{false};
   std::atomic<bool> accepting{false};
   const Clock::time_point created = Clock::now();
+  Metrics metrics{kRoutes};
   std::string id_prefix;
   std::atomic<std::uint64_t> next_request{0};
 
@@ -140,12 +161,43 @@ struct Server::Impl {
     return id_prefix + "-" + std::to_string(next_request.fetch_add(1));
   }
 
+  // Metrics and the access log; `route` indexes kRoutes (kRoutes.size(): unmatched).
+  void finish(std::size_t route, const httplib::Request& req, const httplib::Response& res,
+              Clock::time_point start) {
+    const double seconds = std::chrono::duration<double>(Clock::now() - start).count();
+    metrics.observe(route, res.status, seconds);
+    if (config.access_log && log::enabled(log::Level::Info)) {
+      log::write(log::Level::Info, "request",
+                 {{"method", req.method},
+                  {"path", req.path},
+                  {"status", res.status},
+                  {"ms", seconds * 1000.0},
+                  {"id", res.get_header_value("X-Request-Id")}});
+    }
+  }
+
   // Common handling for every route: request id, readiness, authentication, in-flight counting,
-  // exceptions.
-  [[nodiscard]] Handler wrap(Handler inner, bool open_route) {
-    return [this, inner = std::move(inner), open_route](const httplib::Request& req,
-                                                        httplib::Response& res) {
+  // exceptions, metrics.
+  [[nodiscard]] Handler wrap(Handler inner, bool open_route, std::size_t route) {
+    return [this, inner = std::move(inner), open_route, route](const httplib::Request& req,
+                                                               httplib::Response& res) {
+      const Clock::time_point start = Clock::now();
       res.set_header("X-Request-Id", request_id(req));
+      struct Finish {
+        Impl* self;
+        std::size_t route;
+        const httplib::Request& req;
+        const httplib::Response& res;
+        Clock::time_point start;
+        Finish(Impl* s, std::size_t r, const httplib::Request& q, const httplib::Response& p,
+               Clock::time_point t)
+            : self(s), route(r), req(q), res(p), start(t) {}
+        Finish(const Finish&) = delete;
+        Finish& operator=(const Finish&) = delete;
+        Finish(Finish&&) = delete;
+        Finish& operator=(Finish&&) = delete;
+        ~Finish() { self->finish(route, req, res, start); }
+      } const finish_on_exit{this, route, req, res, start};
       if (!open_route) {
         if (!accepting.load()) {
           send_error(
@@ -164,7 +216,7 @@ struct Server::Impl {
       }
       {
         const std::lock_guard<std::mutex> lock(flight_mutex);
-        ++in_flight;
+        metrics.set_in_flight(++in_flight);
       }
       try {
         inner(req, res);
@@ -175,7 +227,8 @@ struct Server::Impl {
         send_error(res, {.http_status = 500, .code = "INTERNAL", .message = e.what()});
       }
       const std::lock_guard<std::mutex> lock(flight_mutex);
-      if (--in_flight == 0) {
+      metrics.set_in_flight(--in_flight);
+      if (in_flight == 0) {
         flight_done.notify_all();
       }
     };
@@ -235,14 +288,14 @@ struct Server::Impl {
   }
 
   void register_routes() {
-    auto get = [this](std::string_view pattern, Handler h, bool open_route = false) {
-      http.Get(std::string(pattern), wrap(std::move(h), open_route));
+    auto get = [this](const std::string& pattern, Handler h, bool open_route = false) {
+      http.Get(pattern, wrap(std::move(h), open_route, route_index("GET", pattern)));
     };
-    auto post = [this](std::string_view pattern, Handler h) {
-      http.Post(std::string(pattern), wrap(std::move(h), false));
+    auto post = [this](const std::string& pattern, Handler h) {
+      http.Post(pattern, wrap(std::move(h), false, route_index("POST", pattern)));
     };
-    auto del = [this](std::string_view pattern, Handler h) {
-      http.Delete(std::string(pattern), wrap(std::move(h), false));
+    auto del = [this](const std::string& pattern, Handler h) {
+      http.Delete(pattern, wrap(std::move(h), false, route_index("DELETE", pattern)));
     };
     const std::string coll = "/v1/collections/" + std::string(kName);
 
@@ -273,6 +326,12 @@ struct Server::Impl {
           std::to_string(catalog.size()) + R"(, "http_threads": )" + std::to_string(http_threads) +
           R"(, "compute_threads": )" + std::to_string(compute_threads) + "}";
       send_json(res, 200, std::move(body));
+    });
+
+    get("/metrics", [this](const httplib::Request&, httplib::Response& res) {
+      const double uptime = std::chrono::duration<double>(Clock::now() - created).count();
+      res.status = 200;
+      res.set_content(metrics.render(catalog, uptime), "text/plain; version=0.0.4; charset=utf-8");
     });
 
     post("/v1/collections", [this](const httplib::Request& req, httplib::Response& res) {
@@ -517,6 +576,7 @@ struct Server::Impl {
       if (!res.body.empty()) {
         return;  // a handler already produced an error body
       }
+      const Clock::time_point start = Clock::now();
       res.set_header("X-Request-Id", request_id(req));
       ApiError error{.http_status = res.status, .code = "INVALID_ARGUMENT", .message = ""};
       switch (res.status) {
@@ -538,6 +598,7 @@ struct Server::Impl {
           break;
       }
       send_error(res, error);
+      finish(kRoutes.size(), req, res, start);
     });
     http.set_exception_handler(
         [](const httplib::Request&, httplib::Response& res, const std::exception_ptr&) {

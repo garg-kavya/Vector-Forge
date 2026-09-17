@@ -164,6 +164,17 @@ paths:
                   http_threads: {type: integer}
                   compute_threads: {type: integer}
         default: {$ref: '#/components/responses/Error'}
+  /metrics:
+    get:
+      summary: Prometheus metrics (text exposition format 0.0.4)
+      description: Requires the bearer token when the server runs with --api-key.
+      responses:
+        '200':
+          description: Metrics
+          content:
+            text/plain:
+              schema: {type: string}
+        default: {$ref: '#/components/responses/Error'}
   /v1/collections:
     post:
       summary: Create a collection

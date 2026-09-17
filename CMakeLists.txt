@@ -138,5 +138,33 @@ if(VF_BUILD_PYTHON)
   add_subdirectory(python)
 endif()
 
+# ---------------------------------------------------------------------------
+# Installation: library, public headers, CLI, CMake package (find_package(vectorforge))
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+set(VF_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/vectorforge")
+install(TARGETS vectorforge EXPORT vectorforgeTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY include/vectorforge DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.hpp")
+install(FILES "${VF_GENERATED_INCLUDE_DIR}/vectorforge/version.hpp"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/vectorforge)
+install(EXPORT vectorforgeTargets NAMESPACE vectorforge:: DESTINATION ${VF_INSTALL_CMAKEDIR})
+configure_package_config_file(cmake/vectorforgeConfig.cmake.in
+  "${CMAKE_CURRENT_BINARY_DIR}/vectorforgeConfig.cmake"
+  INSTALL_DESTINATION ${VF_INSTALL_CMAKEDIR})
+write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/vectorforgeConfigVersion.cmake"
+  COMPATIBILITY SameMinorVersion)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/vectorforgeConfig.cmake"
+              "${CMAKE_CURRENT_BINARY_DIR}/vectorforgeConfigVersion.cmake"
+        DESTINATION ${VF_INSTALL_CMAKEDIR})
+install(FILES LICENSE README.md CHANGELOG.md DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/vectorforge)
+if(VF_BUILD_CLI)
+  install(TARGETS vectorforge_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
 message(STATUS "VectorForge ${PROJECT_VERSION} (${VF_GIT_SHA}) build=${CMAKE_BUILD_TYPE} "
                "compiler=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION} sanitize='${VF_SANITIZE}'")

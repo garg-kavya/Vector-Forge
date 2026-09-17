@@ -1,0 +1,61 @@
+name: Sanitizers
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "45 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sanitizers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Clang 18 ASan+UBSan (all tests)
+            preset: linux-clang-asan-ubsan
+          - name: Clang 18 TSan (all tests, including concurrency and http)
+            preset: linux-clang-tsan
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-18
+      - name: Limit mmap randomisation for TSan
+        if: matrix.preset == 'linux-clang-tsan'
+        # LLVM 18 TSan aborts with "unexpected memory mapping" under the runner kernel's default
+        # 32-bit mmap entropy.
+        run: sudo sysctl vm.mmap_rnd_bits=28
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -DCMAKE_CXX_COMPILER=clang++-18
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  windows-asan:
+    name: Windows MSVC ASan
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+      - name: Configure
+        run: cmake --preset msvc-asan
+      - name: Build
+        run: cmake --build --preset msvc-asan
+      - name: Test
+        run: ctest --preset msvc-asan
