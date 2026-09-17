@@ -18,7 +18,7 @@ from typing import Any, Iterable
 SCHEMA = 1
 REDACTED = "<redacted>"
 # Keys whose values identify the machine or the local file system (Google Benchmark context).
-PRIVATE_KEYS = {"host_name", "executable"}
+PRIVATE_KEYS = ("host_name", "executable")  # a tuple keeps validation messages in a fixed order
 
 
 def percentile(sorted_samples: list[float], p: float) -> float:
