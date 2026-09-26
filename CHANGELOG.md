@@ -5,6 +5,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The nightly stress jobs never ran a single test. `vf_stress_tests` asked
+  `gtest_discover_tests()` for `LABELS "concurrency;stress"`, but that command cannot carry a
+  multi-value list: the semicolon split it into separate tokens, so CTest read the label as just
+  `concurrency` and silently dropped `stress`. `ctest -L stress` therefore matched nothing and,
+  with the presets' `"noTestsAction": "error"`, failed with `No tests were found!!!` (exit 8) on
+  every nightly run since the workflow was added. The target carries the single label `stress` now;
+  the unfiltered CI, sanitizer and release runs already covered these tests.
+
+### Changed
+- The nightly ThreadSanitizer job repeats the `stress` label 20 times rather than 100. One pass
+  costs ~80s under TSan on a 4-vCPU runner, so 100 repetitions would need ~134 min and exceed the
+  job's 120 min timeout; the GCC Release job still runs the full 100.
+
+## [0.1.0] - 2026-09-17
+
 ### Added
 - Phase 0: repository scaffolding, CMake build with presets (MSVC, MinGW, Linux GCC/Clang,
   sanitizers), pinned GoogleTest and Google Benchmark, warning and sanitizer modules,

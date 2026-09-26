@@ -1456,8 +1456,9 @@ flat = vf.Index(dim=768, metric="l2", index="flat")
 
 ### 15.1 Layers and labels
 
-CTest labels: `unit`, `integration`, `concurrency`, `persistence`, `http`, `slow`, `stress`. PR CI runs everything
-except `slow`/`stress`; nightly runs all.
+CTest labels: `unit`, `integration`, `concurrency`, `persistence`, `http`, `stress`, and `python` (only with
+`-DVF_BUILD_PYTHON=ON`). CI does not filter by label: every workflow that tests runs the whole suite with
+`ctest --preset <preset>`. The nightly workflow additionally re-runs the `stress` label 100 times.
 
 | Layer | Framework | Scope |
 |---|---|---|
@@ -1632,17 +1633,18 @@ GitHub Actions workflows (all pinned action versions by commit SHA):
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
-| `ci.yml` | PR, push main | matrix: ubuntu-24.04 GCC 14 (Release, Debug), ubuntu-24.04 Clang 18+ (Release), windows-2022/2025 MSVC (Release, Debug), macos-14 arm64 AppleClang (scalar fallback path); each: configure via preset, build (`-Werror`/`/WX`), `ctest -L "unit|integration|concurrency|persistence|http"`, then again with `VF_SIMD=scalar` on x86 |
-| `sanitizers.yml` | PR, nightly | Linux clang ASan+UBSan (all tests); TSan (`concurrency`, `http`); Windows MSVC ASan (unit+integration) |
-| `lint.yml` | PR | clang-format check (pinned version via `pip install clang-format==19.*`), clang-tidy on changed files using `compile_commands.json`, `check_isa_leak.py`, markdown link check |
-| `python.yml` | PR (python/ or src/ changes) | build via scikit-build-core on Linux+Windows, CPython 3.12 & 3.14; pytest |
-| `fuzz.yml` | nightly | libFuzzer targets for 10 min each; corpus cached; crashes uploaded as artifacts |
-| `docker.yml` | PR (Dockerfile changes), tag | build image; run container; `curl /healthz` + small insert/search smoke |
-| `bench-smoke.yml` | PR | `vf_bench --config benchmarks/configs/smoke.json` (10K × 128) — checks the harness runs and recall ≥ smoke floor; **not a perf gate** (shared runners are too noisy for timing comparisons) |
-| `nightly.yml` | schedule | `slow` + `stress` labels, coverage report (llvm-cov, informational) |
-| `release.yml` | tag `v*` | build CLI binaries (Linux/Windows/macOS), wheels via cibuildwheel, Docker image to GHCR (requires repository permission — enabled by the owner), GitHub Release with changelog |
+| `ci.yml` | PR, push main | `linux`: ubuntu-24.04 GCC 14 (Release, Debug) and Clang 18 (Release); `windows`: windows-2022 MSVC (Release, Debug). Each configures via preset, builds (`-Werror`/`/WX`) and runs the full suite with `ctest --preset <preset>`, then again under `VF_SIMD=scalar`, plus an AVX2-tier probe and `check_isa_leak.py`. The Linux GCC Release job also checks `docs/openapi.yaml` against the served routes and walks the HTTP API end to end, stopping the server with SIGTERM. `fuzz-smoke`: 2-minute libFuzzer run of the index-reader and JSON-request targets |
+| `sanitizers.yml` | PR, push main, nightly | Linux Clang 18 ASan+UBSan and Clang 18 TSan, each running the full suite via `ctest --preset <preset>` (TSan needs `vm.mmap_rnd_bits=28`); Windows MSVC ASan, likewise the full suite. Two tests are not registered in sanitizer builds: `install.consumer` under any sanitizer (the runtimes would have to be linked into the consumer too), and `vf_alloc_tests` under TSan (its global `operator new` replacement cannot link against the TSan runtime) |
+| `lint.yml` | PR, push main | clang-format `--dry-run --Werror` over every tracked `*.cpp`/`*.hpp` (pinned via `pipx install clang-format==19.1.5`); clang-tidy 18 over every tracked `src/*.cpp` and `apps/*.cpp` except `*_win32.cpp`, against `compile_commands.json` from the `linux-clang-release` preset |
+| `python.yml` | PR, push main | build via scikit-build-core on ubuntu-24.04 and windows-2022, CPython 3.12 & 3.14; `pytest python/tests`; then `examples/python/quickstart.py` |
+| `fuzz.yml` | nightly | libFuzzer index-reader and JSON-request targets, 10 min each (overridable via `workflow_dispatch`); crashes uploaded as artifacts |
+| `docker.yml` | PR, push main | build image; run the container and wait on `/readyz` (the image's own `HEALTHCHECK` uses `/healthz`); walk the whole HTTP API with `examples/http/curl_examples.sh` against an API key; check that a stop/start cycle preserves the data |
+| `bench-smoke.yml` | PR, push main | harness unit tests, then `run_suite.py benchmarks/configs/smoke.json` — a tiny version of every `vf_bench` scenario (2 000 × 16), followed by `make_readme_tables.py` and `plot_results.py`; it checks only that the scenarios run and produce valid results (no recall floor) and is **not a perf gate** (shared runners are too noisy for timing comparisons) |
+| `nightly.yml` | schedule | ubuntu-24.04 Clang 18 TSan: `-L concurrency`, then `-L stress --repeat until-fail:20` (TSan costs ~7x, so the full 100 would exceed the job's 120 min timeout); ubuntu-24.04 GCC 14 Release: `-L stress --repeat until-fail:100` |
+| `release.yml` | tag `v*`, manual | `cli`: build, run `ctest --preset <preset>` as a gate, then package with `tools/package_release.py` (ubuntu-24.04 tar.gz, windows-2022 zip). `wheels`: manylinux via cibuildwheel; `wheels-windows`: `pip wheel` per CPython 3.12/3.13/3.14 (no repair step). `image`: Docker build, smoke-run, pushed to GHCR (requires repository permission — enabled by the owner). `publish`: `sha256sum * > SHA256SUMS` over the collected artifacts and a GitHub Release with the changelog. `workflow_dispatch` with `dry_run` (default true) builds every artifact without publishing |
 
-Caching: `ccache`/`sccache` keyed by preset + compiler version; FetchContent sources cached. Dependencies pinned by
+Caching: none configured yet — every job builds from scratch (a planned improvement: `ccache`/`sccache` keyed by
+preset + compiler version, plus a FetchContent source cache). Dependencies pinned by
 tag **and** `URL_HASH SHA256`. Reproducibility: `SOURCE_DATE_EPOCH` for release builds; version + git sha embedded via
 `configure_file`.
 

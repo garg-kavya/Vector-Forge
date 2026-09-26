@@ -18,7 +18,11 @@ def section(text: str, version: str) -> str | None:
         for i, m in enumerate(matches):
             if m.group("name") == wanted:
                 end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-                return text[m.end():end].strip()
+                # Skip the rest of the heading line, so a dated heading such as
+                # `## [0.1.0] - 2026-09-17` does not leak its date into the body.
+                start = text.find("\n", m.end())
+                start = end if start == -1 else start + 1
+                return text[start:end].strip()
     return None
 
 

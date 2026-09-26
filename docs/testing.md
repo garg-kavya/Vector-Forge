@@ -15,7 +15,8 @@ $env:VF_SIMD = "scalar"; ctest --preset msvc-release   # the scalar kernel tier
 ```bash
 cmake --preset linux-clang-tsan && cmake --build --preset linux-clang-tsan
 ctest --preset linux-clang-tsan                  # ThreadSanitizer (needs vm.mmap_rnd_bits=28 on recent kernels)
-ctest --preset linux-clang-tsan -L stress --repeat until-fail:100
+ctest --preset linux-clang-tsan -L stress --repeat until-fail:20   # what the nightly TSan job runs (~27 min;
+                                                                  # one pass costs ~80 s under TSan)
 pip install "./python[test]" && pytest python/tests
 python -m pytest benchmarks/scripts/tests       # benchmark harness
 ```
@@ -27,7 +28,7 @@ python -m pytest benchmarks/scripts/tests       # benchmark harness
 | `vf_unit_tests` | `unit` | status, types and config, checked math, RNG, aligned allocation, kernels on every tier, dispatch, normalisation, validation, vector store, id map, CRC-32C, binary I/O, mapped files, top-k, visited set, Flat backend against a double-precision reference, model-based Flat test, HNSW graph, level generator, neighbour selection, validator, tombstones, edge cases, determinism (golden fingerprints per tier), compaction, dataset I/O, recall, logging |
 | `vf_alloc_tests` | `unit` | allocation-failure injection for every insert (Flat, HNSW Coarse, HNSW Concurrent); zero allocations on the search path |
 | `vf_concurrency_tests` | `concurrency` | thread pool, concurrent reads, readers against writers, parallel HNSW builds (validator, recall, Coarse/Concurrent equality) |
-| `vf_stress_tests` | `concurrency;stress` | writer/compactor/saver/readers checked against a model; searches, removals and saves during parallel ingestion |
+| `vf_stress_tests` | `stress` | writer/compactor/saver/readers checked against a model; searches, removals and saves during parallel ingestion |
 | `vf_persistence_tests`, `fuzz.index_reader_replay` | `persistence` | round trips in every load mode, atomic saves with fault injection, truncation and bit-flip corruption, hostile values with valid checksums, golden files from an independent Python writer, fuzz corpus replay |
 | `vf_index_integration_tests` | `integration` | HNSW recall against exact results (frozen thresholds), catalog lifecycle and recovery |
 | `vf_integration_tests` | `integration` | CLI pipeline on generated SIFT-format files |
