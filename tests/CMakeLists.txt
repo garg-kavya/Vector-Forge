@@ -103,9 +103,15 @@ target_link_libraries(vf_stress_tests
 target_include_directories(vf_stress_tests
   PRIVATE ${PROJECT_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
 vf_set_project_options(vf_stress_tests)
+# One label only: gtest_discover_tests() cannot carry a multi-value LABELS list. It forwards
+# PROPERTIES through cmake_parse_arguments and writes the flattened list into the generated
+# script, so "concurrency;stress" arrives as the three tokens `LABELS concurrency stress`;
+# CTest then reads LABELS as just "concurrency" and silently drops "stress", which made
+# `ctest -L stress` match nothing and fail the nightly run with "No tests were found!!!".
+# The unfiltered runs (ci.yml, sanitizers.yml, release.yml) already cover these tests.
 gtest_discover_tests(vf_stress_tests
   DISCOVERY_MODE PRE_TEST
-  PROPERTIES LABELS "concurrency;stress")
+  PROPERTIES LABELS stress)
 
 # Persistence tests ---------------------------------------------------------------------------
 add_executable(vf_persistence_tests

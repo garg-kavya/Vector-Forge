@@ -1632,7 +1632,7 @@ GitHub Actions workflows (all pinned action versions by commit SHA):
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
-| `ci.yml` | PR, push main | matrix: ubuntu-24.04 GCC 14 (Release, Debug), ubuntu-24.04 Clang 18+ (Release), windows-2022/2025 MSVC (Release, Debug), macos-14 arm64 AppleClang (scalar fallback path); each: configure via preset, build (`-Werror`/`/WX`), `ctest -L "unit|integration|concurrency|persistence|http"`, then again with `VF_SIMD=scalar` on x86 |
+| `ci.yml` | PR, push main | matrix: ubuntu-24.04 GCC 14 (Release, Debug), ubuntu-24.04 Clang 18+ (Release), windows-2022/2025 MSVC (Release, Debug), macos-14 arm64 AppleClang (scalar fallback path); each: configure via preset, build (`-Werror`/`/WX`), `ctest -L "unit|integration|concurrency|stress|persistence|http"`, then again with `VF_SIMD=scalar` on x86 |
 | `sanitizers.yml` | PR, nightly | Linux clang ASan+UBSan (all tests); TSan (`concurrency`, `http`); Windows MSVC ASan (unit+integration) |
 | `lint.yml` | PR | clang-format check (pinned version via `pip install clang-format==19.*`), clang-tidy on changed files using `compile_commands.json`, `check_isa_leak.py`, markdown link check |
 | `python.yml` | PR (python/ or src/ changes) | build via scikit-build-core on Linux+Windows, CPython 3.12 & 3.14; pytest |
