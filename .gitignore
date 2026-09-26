@@ -22,6 +22,13 @@ __pycache__/
 dist/
 wheelhouse/
 
+# libFuzzer working directories: tools/fuzz_index_reader.sh and tools/fuzz_json_request.sh
+# default to these under the current directory, which is the repository root in ci.yml and
+# fuzz.yml. The seed corpora they copy from live in tests/data and stay tracked.
+/fuzz-corpus/
+/fuzz-corpus-json/
+/fuzz-artifacts/
+
 # Data and index artifacts (golden test files are whitelisted)
 /datasets/
 *.vfidx
