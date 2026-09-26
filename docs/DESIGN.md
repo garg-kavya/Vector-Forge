@@ -1640,7 +1640,7 @@ GitHub Actions workflows (all pinned action versions by commit SHA):
 | `fuzz.yml` | nightly | libFuzzer index-reader and JSON-request targets, 10 min each (overridable via `workflow_dispatch`); crashes uploaded as artifacts |
 | `docker.yml` | PR, push main | build image; run the container; walk the whole HTTP API with `examples/http/curl_examples.sh` against an API key; check that a graceful stop preserves the data |
 | `bench-smoke.yml` | PR, push main | harness unit tests, then `run_suite.py benchmarks/configs/smoke.json` — a tiny version of every `vf_bench` scenario (2 000 × 16), followed by `make_readme_tables.py` and `plot_results.py`; it checks only that the scenarios run and produce valid results (no recall floor) and is **not a perf gate** (shared runners are too noisy for timing comparisons) |
-| `nightly.yml` | schedule | ubuntu-24.04 Clang 18 TSan: `-L concurrency`, then `-L stress --repeat until-fail:100`; ubuntu-24.04 GCC 14 Release: `-L stress --repeat until-fail:100` |
+| `nightly.yml` | schedule | ubuntu-24.04 Clang 18 TSan: `-L concurrency`, then `-L stress --repeat until-fail:20` (TSan costs ~7x, so the full 100 would exceed the job's 120 min timeout); ubuntu-24.04 GCC 14 Release: `-L stress --repeat until-fail:100` |
 | `release.yml` | tag `v*` | build CLI binaries (Linux, Windows), wheels via cibuildwheel, Docker image to GHCR (requires repository permission — enabled by the owner), GitHub Release with changelog |
 
 Caching: none configured yet — every job builds from scratch (a planned improvement: `ccache`/`sccache` keyed by

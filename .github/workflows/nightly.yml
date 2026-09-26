@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   stress-tsan:
-    name: Stress tests x100 (Clang 18 TSan)
+    name: Stress tests x20 (Clang 18 TSan)
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -27,8 +27,13 @@ jobs:
           cmake --build --preset linux-clang-tsan
       - name: Concurrency tests
         run: ctest --preset linux-clang-tsan -L concurrency
-      - name: Stress tests, 100 repetitions
-        run: ctest --preset linux-clang-tsan -L stress --repeat until-fail:100
+      # Fewer repetitions than the Release job below: ThreadSanitizer costs roughly 7x, and one
+      # pass of the stress label takes ~80s under TSan on a 4-vCPU runner (RwStress/hnsw alone is
+      # ~74s of that), so 100 repetitions would need ~134 min and blow this job's 120 min timeout.
+      # TSan is here for race detection, where a few differently-scheduled passes buy most of the
+      # signal; the Release job still does the full 100x soak.
+      - name: Stress tests, 20 repetitions
+        run: ctest --preset linux-clang-tsan -L stress --repeat until-fail:20
 
   stress-release:
     name: Stress tests x100 (GCC 14 Release)

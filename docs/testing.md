@@ -15,7 +15,8 @@ $env:VF_SIMD = "scalar"; ctest --preset msvc-release   # the scalar kernel tier
 ```bash
 cmake --preset linux-clang-tsan && cmake --build --preset linux-clang-tsan
 ctest --preset linux-clang-tsan                  # ThreadSanitizer (needs vm.mmap_rnd_bits=28 on recent kernels)
-ctest --preset linux-clang-tsan -L stress --repeat until-fail:100
+ctest --preset linux-clang-tsan -L stress --repeat until-fail:20   # what the nightly TSan job runs (~27 min;
+                                                                  # one pass costs ~80 s under TSan)
 pip install "./python[test]" && pytest python/tests
 python -m pytest benchmarks/scripts/tests       # benchmark harness
 ```
