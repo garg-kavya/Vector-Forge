@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="How VectorForge is layered, and what it measures on one laptop.">
+<title>Inside VectorForge</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0:#f6f6f4; --surface-1:#fcfcfb; --surface-2:#edece8;
+    --border:#dcdad3; --border-strong:#c4c2ba;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#79776f;
+    --grid:#e5e4de;
+    --m1:#86b6ef; --m2:#5598e7; --m3:#2a78d6; --m4:#184f95;
+    --series-1:#2a78d6; --series-2:#eb6834; --series-3:#1baf7a;
+    --accent:#2a78d6; --good:#1baf7a; --warn:#eda100;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-0:#131312; --surface-1:#1a1a19; --surface-2:#242422;
+      --border:#33322d; --border-strong:#46453e;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8d8c83;
+      --grid:#2b2b28;
+      --m1:#b7d3f6; --m2:#86b6ef; --m3:#3987e5; --m4:#1c5cab;
+      --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
+      --accent:#3987e5; --good:#199e70; --warn:#c98500;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0:#131312; --surface-1:#1a1a19; --surface-2:#242422;
+    --border:#33322d; --border-strong:#46453e;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8d8c83;
+    --grid:#2b2b28;
+    --m1:#b7d3f6; --m2:#86b6ef; --m3:#3987e5; --m4:#1c5cab;
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
+    --accent:#3987e5; --good:#199e70; --warn:#c98500;
+  }
+
+  body {
+    margin:0; background:var(--surface-0); color:var(--text-primary);
+    font-family:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+    font-size:15px; line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:1000px; margin:0 auto; padding-inline:20px; padding-block:40px 64px; }
+  h1,h2,h3,.label,.tag,th { font-family:"IBM Plex Sans",system-ui,sans-serif; }
+  .mono,td.num,th.num,.tag,.axis,.dl { font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace; }
+
+  h1 { font-size:clamp(28px,5vw,40px); font-weight:600; letter-spacing:-.02em; margin:0 0 10px; text-wrap:balance; }
+  .standfirst { font-size:clamp(16px,2.2vw,18px); color:var(--text-secondary); max-width:62ch; margin:0 0 28px; }
+  h2 { font-size:clamp(19px,2.6vw,23px); font-weight:600; letter-spacing:-.01em; margin:0 0 6px; text-wrap:balance; }
+  h3 { font-size:15px; font-weight:600; margin:0 0 4px; }
+  p { margin:0 0 14px; max-width:68ch; }
+  a { color:var(--accent); text-underline-offset:2px; }
+  .label { font-size:11px; font-weight:500; letter-spacing:.09em; text-transform:uppercase; color:var(--text-muted); }
+
+  section { margin-top:44px; }
+  .sechead { border-top:1px solid var(--border-strong); padding-top:14px; margin-bottom:18px; }
+
+  .facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px;
+           background:var(--border); border:1px solid var(--border); border-radius:3px; overflow:hidden; }
+  .fact { background:var(--surface-1); padding:12px 14px; }
+  .fact .k { font-size:10.5px; font-weight:500; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted);
+             font-family:"IBM Plex Sans",sans-serif; }
+  .fact .v { font-family:"IBM Plex Mono",monospace; font-size:15px; margin-top:3px; color:var(--text-primary);
+             font-variant-numeric:tabular-nums; }
+
+  .card { background:var(--surface-1); border:1px solid var(--border); border-radius:4px; padding:18px 18px 12px; }
+  .card + .card { margin-top:16px; }
+  .cardhead { display:flex; flex-wrap:wrap; gap:6px 16px; align-items:baseline; margin-bottom:2px; }
+  .cardhead .sub { font-size:12.5px; color:var(--text-muted); font-family:"IBM Plex Sans",sans-serif; }
+  .chartbox { position:relative; margin-top:12px; }
+  svg { display:block; width:100%; height:auto; max-width:100%; overflow:visible; }
+  .axis { font-size:11px; fill:var(--text-muted); font-variant-numeric:tabular-nums; }
+  .axtitle { font-size:11.5px; fill:var(--text-secondary); font-family:"IBM Plex Sans",sans-serif;
+             letter-spacing:.04em; text-transform:uppercase; }
+  .dl { font-size:11.5px; font-weight:500; font-variant-numeric:tabular-nums; }
+  .gl { stroke:var(--grid); stroke-width:1; }
+  .ax { stroke:var(--border-strong); stroke-width:1; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:12px; }
+  .lg { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-family:"IBM Plex Sans",sans-serif;
+        color:var(--text-secondary); }
+  .sw { width:14px; height:3px; border-radius:2px; flex:none; }
+  .sw.dot { width:9px; height:9px; border-radius:50%; }
+
+  table { border-collapse:collapse; width:100%; font-size:12.5px; margin-top:14px; }
+  caption { text-align:left; font-size:11px; font-weight:500; letter-spacing:.08em; text-transform:uppercase;
+            color:var(--text-muted); font-family:"IBM Plex Sans",sans-serif; padding-bottom:6px; }
+  th,td { padding:5px 10px 5px 0; text-align:left; border-bottom:1px solid var(--border); }
+  th { font-size:11px; font-weight:600; color:var(--text-secondary); white-space:nowrap; }
+  td.num,th.num { text-align:right; font-variant-numeric:tabular-nums; padding-right:14px; }
+  .tablewrap { overflow-x:auto; }
+  .swcell { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:7px; vertical-align:-1px; }
+
+  .tip { position:absolute; pointer-events:none; opacity:0; transition:opacity .09s;
+         background:var(--text-primary); color:var(--surface-1); font-family:"IBM Plex Mono",monospace;
+         font-size:11.5px; line-height:1.45; padding:6px 9px; border-radius:3px; white-space:nowrap;
+         transform:translate(-50%,-100%); z-index:5; font-variant-numeric:tabular-nums; }
+  .tip.on { opacity:1; }
+
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:720px){ .two { grid-template-columns:1fr; } }
+
+  .note { border-left:2px solid var(--border-strong); padding:2px 0 2px 14px; margin:16px 0 0;
+          font-size:13.5px; color:var(--text-secondary); max-width:66ch; }
+  .note strong { color:var(--text-primary); font-weight:500; }
+
+  ul.tight { margin:0 0 14px; padding-left:20px; max-width:68ch; }
+  ul.tight li { margin-bottom:6px; }
+
+  footer { margin-top:52px; border-top:1px solid var(--border-strong); padding-top:16px;
+           font-size:12.5px; color:var(--text-muted); }
+  code { font-family:"IBM Plex Mono",monospace; font-size:.9em; background:var(--surface-2);
+         padding:1px 5px; border-radius:3px; }
+  @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="label">C++20 vector similarity search · v0.1.0</div>
+    <h1>Inside VectorForge</h1>
+    <p class="standfirst">An exact and approximate nearest-neighbour engine built from first principles:
+    HNSW and brute-force search over float32 vectors, AVX2 kernels chosen at runtime, concurrent
+    insertion, and a checksummed on-disk format. Every number here comes from the result files
+    committed in the repository.</p>
+
+    <div class="facts">
+      <div class="fact"><div class="k">Indexes</div><div class="v">Flat · HNSW</div></div>
+      <div class="fact"><div class="k">Metrics</div><div class="v">L2 · cosine · dot</div></div>
+      <div class="fact"><div class="k">Kernel tiers</div><div class="v">scalar · AVX2+FMA</div></div>
+      <div class="fact"><div class="k">Surfaces</div><div class="v">C++ · CLI · HTTP · Python</div></div>
+      <div class="fact"><div class="k">Core deps</div><div class="v">none</div></div>
+      <div class="fact"><div class="k">Test suite</div><div class="v">334 tests</div></div>
+    </div>
+  </header>
+
+  <!-- ARCHITECTURE ------------------------------------------------------- -->
+  <section>
+    <div class="sechead"><h2>How it is put together</h2></div>
+    <p>Nine modules, layered so that each depends only on the ones beneath it. The core library pulls in
+    no third-party code; the CLI, server, tests and benchmarks are the only things that do.</p>
+
+    <div class="card">
+      <div class="cardhead"><h3>Module layering</h3>
+        <span class="sub">arrows point from a layer to what it calls</span></div>
+      <div class="chartbox">
+        <svg viewBox="0 0 960 386" role="img" aria-label="Layered architecture diagram: frontends over public API over collection, index and search, storage, simd and concurrency, and core utilities.">
+          <defs>
+            <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,1 L9,5 L0,9 z" fill="var(--border-strong)"></path>
+            </marker>
+          </defs>
+
+          <!-- frontends -->
+          <text class="axtitle" x="0" y="13">frontends</text>
+          <g>
+            <rect x="0" y="22" width="228" height="44" rx="3" fill="var(--surface-2)" stroke="var(--border-strong)"></rect>
+            <text class="dl" x="114" y="42" text-anchor="middle" fill="var(--text-primary)">vectorforge CLI</text>
+            <text class="axis" x="114" y="56" text-anchor="middle">gen-data · build · serve</text>
+
+            <rect x="244" y="22" width="228" height="44" rx="3" fill="var(--surface-2)" stroke="var(--border-strong)"></rect>
+            <text class="dl" x="358" y="42" text-anchor="middle" fill="var(--text-primary)">HTTP / JSON</text>
+            <text class="axis" x="358" y="56" text-anchor="middle">17 routes · /metrics</text>
+
+            <rect x="488" y="22" width="228" height="44" rx="3" fill="var(--surface-2)" stroke="var(--border-strong)"></rect>
+            <text class="dl" x="602" y="42" text-anchor="middle" fill="var(--text-primary)">Python module</text>
+            <text class="axis" x="602" y="56" text-anchor="middle">pybind11 · zero-copy</text>
+
+            <rect x="732" y="22" width="228" height="44" rx="3" fill="var(--surface-2)" stroke="var(--border-strong)"></rect>
+            <text class="dl" x="846" y="42" text-anchor="middle" fill="var(--text-primary)">benchmarks</text>
+            <text class="axis" x="846" y="56" text-anchor="middle">vf_bench · harness</text>
+          </g>
+
+          <!-- api seam -->
+          <line class="ax" x1="0" y1="82" x2="960" y2="82" stroke-dasharray="3 3"></line>
+          <text class="axis" x="480" y="78" text-anchor="middle" fill="var(--text-secondary)">public API — include/vectorforge/*.hpp</text>
+          <line x1="480" y1="86" x2="480" y2="104" stroke="var(--border-strong)" stroke-width="1" marker-end="url(#arw)"></line>
+
+          <!-- collection -->
+          <text class="axtitle" x="0" y="122">collection</text>
+          <rect x="88" y="108" width="872" height="40" rx="3" fill="var(--surface-1)" stroke="var(--accent)" stroke-width="1.5"></rect>
+          <text class="dl" x="106" y="132" fill="var(--text-primary)">Collection</text>
+          <text class="axis" x="196" y="132">thread-safe façade · add / upsert / remove / search / save</text>
+          <text class="dl" x="640" y="132" fill="var(--text-primary)">Catalog</text>
+          <text class="axis" x="706" y="132">named collections · snapshots</text>
+
+          <line x1="300" y1="152" x2="300" y2="170" stroke="var(--border-strong)" marker-end="url(#arw)"></line>
+          <line x1="700" y1="152" x2="700" y2="170" stroke="var(--border-strong)" marker-end="url(#arw)"></line>
+
+          <!-- index / search -->
+          <text class="axtitle" x="0" y="190">index</text>
+          <rect x="88" y="174" width="424" height="44" rx="3" fill="var(--surface-1)" stroke="var(--border-strong)"></rect>
+          <text class="dl" x="106" y="194" fill="var(--text-primary)">HnswBackend</text>
+          <text class="axis" x="106" y="209">graph · insert · beam search · validator</text>
+          <text class="dl" x="330" y="194" fill="var(--text-primary)">FlatBackend</text>
+          <text class="axis" x="330" y="209">blocked exact scan</text>
+
+          <text class="axtitle" x="528" y="190">search</text>
+          <rect x="600" y="174" width="360" height="44" rx="3" fill="var(--surface-1)" stroke="var(--border-strong)"></rect>
+          <text class="dl" x="618" y="194" fill="var(--text-primary)">bounded heaps</text>
+          <text class="axis" x="618" y="209">visited sets · pooled search contexts</text>
+
+          <line x1="300" y1="222" x2="300" y2="240" stroke="var(--border-strong)" marker-end="url(#arw)"></line>
+          <line x1="700" y1="222" x2="700" y2="240" stroke="var(--border-strong)" marker-end="url(#arw)"></line>
+
+          <!-- simd / storage / concurrency -->
+          <text class="axtitle" x="0" y="260">kernels</text>
+          <rect x="88" y="244" width="272" height="44" rx="3" fill="var(--surface-1)" stroke="var(--border-strong)"></rect>
+          <text class="dl" x="106" y="264" fill="var(--text-primary)">simd</text>
+          <text class="axis" x="106" y="279">CPUID dispatch · scalar | AVX2+FMA</text>
+
+          <rect x="376" y="244" width="272" height="44" rx="3" fill="var(--surface-1)" stroke="var(--border-strong)"></rect>
+          <text class="dl" x="394" y="264" fill="var(--text-primary)">storage</text>
+          <text class="axis" x="394" y="279">.vfidx · mmap · CRC-32C</text>
+
+          <rect x="664" y="244" width="296" height="44" rx="3" fill="var(--surface-1)" stroke="var(--border-strong)"></rect>
+          <text class="dl" x="682" y="264" fill="var(--text-primary)">concurrency</text>
+          <text class="axis" x="682" y="279">ThreadPool · striped mutexes</text>
+
+          <line x1="480" y1="292" x2="480" y2="310" stroke="var(--border-strong)" marker-end="url(#arw)"></line>
+
+          <!-- core -->
+          <text class="axtitle" x="0" y="330">core</text>
+          <rect x="88" y="314" width="872" height="44" rx="3" fill="var(--surface-2)" stroke="var(--border-strong)"></rect>
+          <text class="dl" x="106" y="334" fill="var(--text-primary)">Status / Result&lt;T&gt;</text>
+          <text class="axis" x="106" y="349">types · validation · checked arithmetic · SplitMix64 RNG · 64-byte aligned allocation</text>
+
+          <text class="axis" x="0" y="378" fill="var(--text-muted)">Nothing below the seam knows about HTTP, Python or the CLI.</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- RECALL / THROUGHPUT ------------------------------------------------- -->
+  <section>
+    <div class="sechead"><h2>The trade-off that defines the engine</h2></div>
+    <p>HNSW answers queries by walking a graph. Two knobs decide how well it does: <code>M</code>,
+    how many neighbours each node keeps, fixed when the graph is built; and <code>ef_search</code>,
+    the beam width at query time. Widening the beam buys recall and costs throughput — every curve
+    below is that same trade, drawn for four graph densities.</p>
+
+    <div class="card">
+      <div class="cardhead"><h3>Recall against throughput</h3>
+        <span class="sub">100 000 × 128-d, L2, ef_construction 200, single thread, AVX2 · each point is one ef_search</span></div>
+      <div class="chartbox">
+        <svg id="pareto" viewBox="0 0 900 430" role="img" aria-label="Recall against queries per second for graph degree M of 8, 16, 32 and 48. Higher M reaches high recall at a lower beam width."></svg>
+        <div class="tip" id="tip-pareto"></div>
+      </div>
+      <div class="legend" id="lg-pareto"></div>
+      <div class="note">Denser graphs win at the high-recall end and lose at the cheap end.
+      At <strong>recall 0.99</strong>, <code>M=32</code> serves about 11 400 queries/s where
+      <code>M=8</code> manages roughly 5 300 — but at recall 0.52 <code>M=8</code> is the fastest
+      thing on the chart. The cost of density is paid once, at build time.</div>
+
+      <div class="tablewrap">
+        <table>
+          <caption>Build cost per graph density</caption>
+          <thead><tr><th>M</th><th class="num">build, 1 thread</th><th class="num">graph size</th><th class="num">ef for recall ≥ 0.99</th><th class="num">QPS there</th></tr></thead>
+          <tbody id="tb-build"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- SIMD ---------------------------------------------------------------- -->
+  <section>
+    <div class="sechead"><h2>What the AVX2 kernels are worth</h2></div>
+    <p>Distance kernels are compiled for both tiers and picked at runtime from CPUID, so one binary
+    runs everywhere. The gain grows with dimension: at 128 components the loop is short enough that
+    overhead dominates, and by 1536 the vector unit is doing almost all the work.</p>
+
+    <div class="card">
+      <div class="cardhead"><h3>Exact search, scalar against AVX2</h3>
+        <span class="sub">100 000 rows, k = 10, single thread · queries per second</span></div>
+      <div class="chartbox">
+        <svg id="simd" viewBox="0 0 900 330" role="img" aria-label="Exact search throughput for scalar and AVX2 kernels at 128, 384, 768 and 1536 dimensions. The AVX2 speedup rises from 2.4 times to 3.7 times."></svg>
+        <div class="tip" id="tip-simd"></div>
+      </div>
+      <div class="legend">
+        <span class="lg"><span class="sw" style="background:var(--series-1)"></span>scalar</span>
+        <span class="lg"><span class="sw" style="background:var(--series-2)"></span>AVX2 + FMA</span>
+      </div>
+      <div class="note">The speedup label above each pair is the ratio actually measured, not a
+      theoretical width. A <code>check_isa_leak.py</code> step in CI disassembles the build and fails
+      if an AVX instruction escapes the AVX2 object file — that is what keeps the scalar tier a real
+      fallback rather than a claim.</div>
+    </div>
+  </section>
+
+  <!-- CONCURRENCY --------------------------------------------------------- -->
+  <section>
+    <div class="sechead"><h2>Concurrency, including where it stops helping</h2></div>
+    <p>Builds parallelise well. Searches do not, past a point: once the working set outgrows cache the
+    workload is memory-bound, and adding threads buys progressively less.</p>
+
+    <div class="card">
+      <div class="cardhead"><h3>Speedup against one thread</h3>
+        <span class="sub">100 000 × 128-d · 8 cores / 16 threads · dashed line is linear scaling</span></div>
+      <div class="chartbox">
+        <svg id="scal" viewBox="0 0 900 380" role="img" aria-label="Thread scaling speedup. HNSW build reaches 7.4 times at 16 threads; flat search peaks at 6.1 times on 12 threads then drops to 2.7 times at 16."></svg>
+        <div class="tip" id="tip-scal"></div>
+      </div>
+      <div class="legend" id="lg-scal"></div>
+      <div class="note">The drop for flat search at 16 threads — <strong>6.1× at 12 threads,
+      2.70× at 16</strong> — is in the committed results and is left as measured. The suite README
+      puts it down to a noisy desktop machine with 8 physical cores; it is not presented as a
+      property of the engine.</div>
+    </div>
+
+    <div class="two" style="margin-top:16px">
+      <div class="card">
+        <div class="cardhead"><h3>Ingest throughput</h3><span class="sub">vectors / s</span></div>
+        <div class="chartbox">
+          <svg id="ing1" viewBox="0 0 420 210" role="img" aria-label="Ingest throughput: coarse one writer 3738 vectors per second, concurrent one writer 4388, concurrent four writers 15508."></svg>
+        </div>
+      </div>
+      <div class="card">
+        <div class="cardhead"><h3>Search latency while ingesting</h3><span class="sub">p50, ms, log scale</span></div>
+        <div class="chartbox">
+          <svg id="ing2" viewBox="0 0 420 210" role="img" aria-label="Median search latency during ingestion: 2.278 ms under the coarse lock, 0.087 and 0.098 ms with the concurrent index."></svg>
+        </div>
+      </div>
+    </div>
+    <div class="note">This is the case the fine-grained index exists for. Under the coarse
+    reader/writer lock, a search competing with one writer sits at <strong>2.278 ms</strong>;
+    the concurrent index answers in <strong>0.087 ms</strong> — about 26× lower — while ingesting
+    faster, and four writers reach 15 508 vectors/s without pushing median search latency past
+    0.1 ms.</div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>Ingestion detail</caption>
+        <thead><tr><th>mode</th><th class="num">vectors/s</th><th class="num">idle p50</th><th class="num">busy p50</th><th class="num">busy p99.9</th><th class="num">busy max</th></tr></thead>
+        <tbody id="tb-ing"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- STORAGE ------------------------------------------------------------- -->
+  <section>
+    <div class="sechead"><h2>The on-disk format</h2></div>
+    <p>A <code>.vfidx</code> file is a header plus typed sections, each covered by a CRC-32C. Vectors
+    start on a 4096-byte boundary so a whole-file mapping hands back aligned rows and the loader can
+    skip reading them entirely.</p>
+
+    <div class="card">
+      <div class="cardhead"><h3>Section layout</h3>
+        <span class="sub">graph sections present only for an HNSW collection</span></div>
+      <div class="chartbox">
+        <svg id="fmt" viewBox="0 0 900 176" role="img" aria-label="On-disk section layout: metadata, vectors, labels, tombstones, levels, level-zero links, upper index and upper links."></svg>
+      </div>
+      <div class="note">Loading can memory-map the vectors instead of copying them, so a cold open is
+      dominated by the graph sections rather than by <code>N × D × 4</code> bytes. Corruption is caught
+      rather than trusted: the persistence suite covers truncation, bit flips, and hostile values that
+      carry a <em>valid</em> checksum.</div>
+    </div>
+  </section>
+
+  <!-- LIMITS -------------------------------------------------------------- -->
+  <section>
+    <div class="sechead"><h2>What these numbers do not cover</h2></div>
+    <ul class="tight">
+      <li>One machine, one run each. An AMD Ryzen 7 4800H laptop — 8 cores, 16 threads, 15.4 GB,
+        Windows 11, MSVC Release. Nothing here is a cross-platform or cross-CPU comparison.</li>
+      <li><strong>Synthetic data.</strong> Gaussian-mixture vectors, seed 1, 100 clusters. No
+        real-world embedding set has been measured, and real data has structure that changes recall.</li>
+      <li>Single node, single process. No replication, no sharding, no distributed anything.</li>
+      <li>Recall falls with scale at a fixed beam: at 1 M × 128-d, <code>ef_search = 64</code> gives
+        recall 0.79, and reaching 0.95 needs 256. Larger collections need a wider beam, not the
+        defaults tuned at 100 K.</li>
+      <li>Timing figures were taken on a desktop OS with other processes live; the thread-scaling
+        tail above 12 threads is visibly noisy.</li>
+    </ul>
+  </section>
+
+  <footer>
+    Drawn from <code>benchmarks/results/2026-09-17_ryzen7-4800h_msvc-release_suite</code> and
+    <code>…_phase5</code> in the VectorForge repository. Build: MSVC 19.50, Release, AVX2 tier.
+    Dataset: GMM, 100 clusters, spread 0.1, seed 1, metric L2, 1 000 queries.
+    The README tables are generated from the same files by <code>make_readme_tables.py</code>.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (n, a) => { const e = document.createElementNS(NS, n);
+    for (const k in a) e.setAttribute(k, a[k]); return e; };
+  const fmt = n => n.toLocaleString("en-US");
+
+  /* ---------- real data, transcribed from the committed result files ---------- */
+
+  // sweep-M{8,16,32,48}-efc200/rep1.json -> [ef_search, recall@10, qps]
+  const SWEEP = {
+    8:  [[10,.5165,54077.4],[16,.6344,38870.9],[32,.8010,23568.9],[64,.9178,14246.6],[128,.9834,8743.5],[256,.9953,5305.1],[512,.9980,3886.6]],
+    16: [[10,.7084,33430.6],[16,.8167,25188.7],[32,.9383,15713.4],[64,.9906,10433.8],[128,.9998,7202.1],[256,1,4923.0],[512,1,3556.0]],
+    32: [[10,.8710,21207.7],[16,.9423,16438.3],[32,.9921,11398.8],[64,.9994,7869.3],[128,1,6157.6],[256,1,4138.1],[512,1,3107.3]],
+    48: [[10,.9381,17290.7],[16,.9766,13881.8],[32,.9977,9867.0],[64,.9999,7676.5],[128,1,5809.5],[256,1,4189.5],[512,1,2875.7]]
+  };
+  const BUILD = { 8:[13.7,9.9], 16:[17.5,17.9], 32:[33.3,33.9], 48:[51.2,49.9] }; // seconds, MiB
+  const MS = [8,16,32,48], MCOL = { 8:"--m1", 16:"--m2", 32:"--m3", 48:"--m4" };
+
+  // exact search, N=100 000, k=10, 1 thread, QPS
+  const SIMD = [ {d:128,s:128.9,a:306.2},{d:384,s:37.3,a:129.4},{d:768,s:18.1,a:65.6},{d:1536,s:9.1,a:34.0} ];
+
+  // thread scaling, speedup vs 1 thread (null = not run)
+  const THREADS = [1,2,4,8,12,16];
+  const SCAL = [
+    {name:"HNSW build",  col:"--series-1", v:[1.00,1.96,3.68,5.71,null,7.36]},
+    {name:"flat search", col:"--series-2", v:[1.00,1.88,3.02,4.71,6.13,2.70]},
+    {name:"HNSW search", col:"--series-3", v:[1.00,1.91,3.14,4.15,4.43,4.71]}
+  ];
+
+  const ING = [
+    {name:"coarse · 1 writer",     vps:3738,  idle:0.067, p50:2.278, p999:2.89, max:3.32},
+    {name:"concurrent · 1 writer", vps:4388,  idle:0.072, p50:0.087, p999:0.30, max:2.63},
+    {name:"concurrent · 4 writers",vps:15508, idle:0.067, p50:0.098, p999:0.42, max:2.51}
+  ];
+
+  const SECTIONS = [
+    {n:"METADATA", w:5,  on:1}, {n:"VECTORS", w:34, on:1}, {n:"LABELS", w:9, on:1},
+    {n:"TOMBSTONES", w:7, on:0}, {n:"LEVELS", w:6, on:0}, {n:"L0_LINKS", w:17, on:0},
+    {n:"UPPER_INDEX", w:9, on:0}, {n:"UPPER_LINKS", w:13, on:0}
+  ];
+
+  /* ---------- tooltip plumbing ---------- */
+  function tipFor(boxId, tipId) {
+    const box = document.getElementById(boxId), tip = document.getElementById(tipId);
+    if (!box || !tip) return { bind(){} };
+    const hide = () => tip.classList.remove("on");
+    box.addEventListener("pointerleave", hide);
+    return {
+      bind(node, html) {
+        node.addEventListener("pointerenter", ev => {
+          tip.innerHTML = html;
+          const b = box.getBoundingClientRect(), t = ev.target.getBoundingClientRect();
+          tip.style.left = (t.left - b.left + t.width / 2) + "px";
+          tip.style.top  = (t.top  - b.top  - 6) + "px";
+          tip.classList.add("on");
+        });
+      }
+    };
+  }
+
+  /* ---------- 1. recall / QPS ---------- */
+  (function pareto() {
+    const svg = document.getElementById("pareto");
+    const W = 900, H = 430, L = 66, R = 108, T = 20, B = 54;
+    const x0 = L, x1 = W - R, y0 = T, y1 = H - B;
+    const rMin = .50, rMax = 1.005;
+    const qMin = 2500, qMax = 60000;
+    const lg = Math.log10;
+    const X = r => x0 + (r - rMin) / (rMax - rMin) * (x1 - x0);
+    const Y = q => y1 - (lg(q) - lg(qMin)) / (lg(qMax) - lg(qMin)) * (y1 - y0);
+
+    [3000, 5000, 10000, 20000, 50000].forEach(q => {
+      svg.appendChild(el("line", { class:"gl", x1:x0, x2:x1, y1:Y(q), y2:Y(q) }));
+      const t = el("text", { class:"axis", x:x0 - 10, y:Y(q) + 4, "text-anchor":"end" });
+      t.textContent = fmt(q); svg.appendChild(t);
+    });
+    [.5,.6,.7,.8,.9,1].forEach(r => {
+      svg.appendChild(el("line", { class:"gl", x1:X(r), x2:X(r), y1:y0, y2:y1 }));
+      const t = el("text", { class:"axis", x:X(r), y:y1 + 20, "text-anchor":"middle" });
+      t.textContent = r.toFixed(2); svg.appendChild(t);
+    });
+    svg.appendChild(el("line", { class:"ax", x1:x0, x2:x1, y1:y1, y2:y1 }));
+    svg.appendChild(el("line", { class:"ax", x1:x0, x2:x0, y1:y0, y2:y1 }));
+
+    let a = el("text", { class:"axtitle", x:x0, y:y1 + 44 }); a.textContent = "recall @ 10 →"; svg.appendChild(a);
+    a = el("text", { class:"axtitle", x:x0 - 10, y:y0 - 6, "text-anchor":"end" }); a.textContent = "queries/s"; svg.appendChild(a);
+
+    const tp = tipFor("pareto", "tip-pareto").bind ? tipFor("pareto","tip-pareto") : null;
+    const tips = tipFor("pareto", "tip-pareto");
+
+    const ends = [];
+    MS.forEach(M => {
+      const col = `var(${MCOL[M]})`, pts = SWEEP[M];
+      const d = pts.map((p, i) => `${i ? "L" : "M"}${X(p[1]).toFixed(1)},${Y(p[2]).toFixed(1)}`).join(" ");
+      svg.appendChild(el("path", { d, fill:"none", stroke:col, "stroke-width":2,
+                                   "stroke-linejoin":"round", "stroke-linecap":"round" }));
+      pts.forEach(p => {
+        svg.appendChild(el("circle", { cx:X(p[1]), cy:Y(p[2]), r:4.5, fill:col,
+                                       stroke:"var(--surface-1)", "stroke-width":2 }));
+        const hit = el("circle", { cx:X(p[1]), cy:Y(p[2]), r:12, fill:"transparent" });
+        tips.bind(hit, `M=${M} · ef_search ${p[0]}<br>recall ${p[1].toFixed(4)} · ${fmt(Math.round(p[2]))} q/s`);
+        svg.appendChild(hit);
+      });
+      const last = pts[pts.length - 1];
+      ends.push({ M, col, px:X(last[1]), py:Y(last[2]) });
+    });
+
+    // The four curves converge at recall ~1, so end labels would sit on top of each
+    // other: place them in the right margin, spread to a minimum gap, each tied back
+    // to its own curve by a leader.
+    const GAP = 19;
+    ends.sort((a, b) => a.py - b.py);
+    ends.forEach((e, i) => { e.ly = i ? Math.max(e.py, ends[i - 1].ly + GAP) : e.py; });
+    const overflow = ends[ends.length - 1].ly - (y1 - 4);
+    if (overflow > 0) ends.forEach(e => { e.ly -= overflow; });
+    ends.forEach(e => {
+      svg.appendChild(el("path", {
+        d:`M${(e.px + 6).toFixed(1)},${e.py.toFixed(1)} L${(x1 + 10).toFixed(1)},${e.ly.toFixed(1)}`,
+        fill:"none", stroke:e.col, "stroke-width":1, opacity:.55 }));
+      const lab = el("text", { class:"dl", x:x1 + 15, y:e.ly + 4, fill:e.col });
+      lab.textContent = `M = ${e.M}`; svg.appendChild(lab);
+    });
+
+    const box = document.getElementById("lg-pareto");
+    MS.forEach(M => {
+      const s = document.createElement("span"); s.className = "lg";
+      s.innerHTML = `<span class="sw" style="background:var(${MCOL[M]})"></span>M = ${M}`;
+      box.appendChild(s);
+    });
+
+    // build table
+    const tb = document.getElementById("tb-build");
+    MS.forEach(M => {
+      const hit = SWEEP[M].find(p => p[1] >= .99);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><span class="swcell" style="background:var(${MCOL[M]})"></span>${M}</td>` +
+        `<td class="num">${BUILD[M][0].toFixed(1)} s</td>` +
+        `<td class="num">${BUILD[M][1].toFixed(1)} MiB</td>` +
+        `<td class="num">${hit ? hit[0] : "—"}</td>` +
+        `<td class="num">${hit ? fmt(Math.round(hit[2])) : "—"}</td>`;
+      tb.appendChild(tr);
+    });
+  })();
+
+  /* ---------- 2. SIMD grouped bars ---------- */
+  (function simd() {
+    const svg = document.getElementById("simd");
+    const W = 900, H = 330, L = 66, R = 20, T = 34, B = 52;
+    const x0 = L, x1 = W - R, y0 = T, y1 = H - B;
+    const max = 340;
+    const Y = v => y1 - v / max * (y1 - y0);
+    const tips = tipFor("simd", "tip-simd");
+
+    [0, 100, 200, 300].forEach(v => {
+      svg.appendChild(el("line", { class:"gl", x1:x0, x2:x1, y1:Y(v), y2:Y(v) }));
+      const t = el("text", { class:"axis", x:x0 - 10, y:Y(v) + 4, "text-anchor":"end" });
+      t.textContent = fmt(v); svg.appendChild(t);
+    });
+    svg.appendChild(el("line", { class:"ax", x1:x0, x2:x1, y1:y1, y2:y1 }));
+
+    let a = el("text", { class:"axtitle", x:x0 - 10, y:y0 - 12, "text-anchor":"end" });
+    a.textContent = "q/s"; svg.appendChild(a);
+    a = el("text", { class:"axtitle", x:x0, y:y1 + 44 }); a.textContent = "dimensions"; svg.appendChild(a);
+
+    const gw = (x1 - x0) / SIMD.length, bw = 52;
+    SIMD.forEach((row, i) => {
+      const cx = x0 + gw * (i + .5);
+      [["s","--series-1","scalar"],["a","--series-2","AVX2"]].forEach(([key, col, nm], j) => {
+        const v = row[key], bx = cx - bw - 1 + j * (bw + 2), h = y1 - Y(v);
+        svg.appendChild(el("rect", { x:bx, y:Y(v), width:bw, height:Math.max(h, 1.5),
+                                     rx:4, fill:`var(${col})` }));
+        const lb = el("text", { class:"dl", x:bx + bw / 2, y:Y(v) - 7, "text-anchor":"middle",
+                                fill:"var(--text-secondary)" });
+        lb.textContent = v.toFixed(1); svg.appendChild(lb);
+        const hit = el("rect", { x:bx, y:y0, width:bw, height:y1 - y0, fill:"transparent" });
+        tips.bind(hit, `${nm} · d=${row.d}<br>${v.toFixed(1)} queries/s`);
+        svg.appendChild(hit);
+      });
+      const dl = el("text", { class:"axis", x:cx, y:y1 + 20, "text-anchor":"middle" });
+      dl.textContent = row.d; svg.appendChild(dl);
+      const sp = el("text", { class:"dl", x:cx, y:y0 - 12, "text-anchor":"middle", fill:"var(--accent)" });
+      sp.textContent = (row.a / row.s).toFixed(2) + "×"; svg.appendChild(sp);
+    });
+  })();
+
+  /* ---------- 3. thread scaling ---------- */
+  (function scal() {
+    const svg = document.getElementById("scal");
+    const W = 900, H = 380, L = 56, R = 120, T = 22, B = 52;
+    const x0 = L, x1 = W - R, y0 = T, y1 = H - B;
+    const X = t => x0 + (t - 1) / 15 * (x1 - x0);
+    const Y = v => y1 - (v - 1) / 15 * (y1 - y0);
+    const tips = tipFor("scal", "tip-scal");
+
+    [1,4,8,12,16].forEach(v => {
+      svg.appendChild(el("line", { class:"gl", x1:x0, x2:x1, y1:Y(v), y2:Y(v) }));
+      const t = el("text", { class:"axis", x:x0 - 10, y:Y(v) + 4, "text-anchor":"end" });
+      t.textContent = v + "×"; svg.appendChild(t);
+    });
+    THREADS.forEach(t => {
+      const tx = el("text", { class:"axis", x:X(t), y:y1 + 20, "text-anchor":"middle" });
+      tx.textContent = t; svg.appendChild(tx);
+    });
+    svg.appendChild(el("line", { class:"ax", x1:x0, x2:x1, y1:y1, y2:y1 }));
+    svg.appendChild(el("line", { class:"ax", x1:x0, x2:x0, y1:y0, y2:y1 }));
+
+    // ideal reference
+    svg.appendChild(el("line", { x1:X(1), y1:Y(1), x2:X(16), y2:Y(16), stroke:"var(--border-strong)",
+                                 "stroke-width":1.5, "stroke-dasharray":"5 4" }));
+    let a = el("text", { class:"axis", x:X(16) + 8, y:Y(16) + 4, fill:"var(--text-muted)" });
+    a.textContent = "linear"; svg.appendChild(a);
+    a = el("text", { class:"axtitle", x:x0, y:y1 + 44 }); a.textContent = "threads"; svg.appendChild(a);
+    a = el("text", { class:"axtitle", x:x0 - 10, y:y0 - 6, "text-anchor":"end" }); a.textContent = "speedup"; svg.appendChild(a);
+
+    SCAL.forEach(s => {
+      const col = `var(${s.col})`;
+      const pts = s.v.map((v, i) => v == null ? null : [THREADS[i], v]).filter(Boolean);
+      const d = pts.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
+      svg.appendChild(el("path", { d, fill:"none", stroke:col, "stroke-width":2,
+                                   "stroke-linejoin":"round", "stroke-linecap":"round" }));
+      pts.forEach(p => {
+        svg.appendChild(el("circle", { cx:X(p[0]), cy:Y(p[1]), r:4.5, fill:col,
+                                       stroke:"var(--surface-1)", "stroke-width":2 }));
+        const hit = el("circle", { cx:X(p[0]), cy:Y(p[1]), r:12, fill:"transparent" });
+        tips.bind(hit, `${s.name}<br>${p[0]} threads · ${p[1].toFixed(2)}× speedup`);
+        svg.appendChild(hit);
+      });
+      const last = pts[pts.length - 1];
+      const lab = el("text", { class:"dl", x:X(last[0]) + 12, y:Y(last[1]) + 4, fill:col });
+      lab.textContent = `${s.name} ${last[1].toFixed(2)}×`; svg.appendChild(lab);
+    });
+
+    const box = document.getElementById("lg-scal");
+    SCAL.forEach(s => {
+      const sp = document.createElement("span"); sp.className = "lg";
+      sp.innerHTML = `<span class="sw" style="background:var(${s.col})"></span>${s.name}`;
+      box.appendChild(sp);
+    });
+  })();
+
+  /* ---------- 4 & 5. ingestion pair ---------- */
+  function hbars(id, rows, val, label, logScale, dom) {
+    const svg = document.getElementById(id);
+    const W = 420, H = 210, L = 4, R = 64, T = 22, B = 26;
+    const x0 = L, x1 = W - R, y0 = T, y1 = H - B;
+    const lg = Math.log10;
+    const X = v => logScale
+      ? x0 + (lg(v) - lg(dom[0])) / (lg(dom[1]) - lg(dom[0])) * (x1 - x0)
+      : x0 + v / dom[1] * (x1 - x0);
+    const bh = 26, gap = (y1 - y0 - rows.length * bh) / (rows.length - 1 || 1);
+
+    rows.forEach((r, i) => {
+      const y = y0 + i * (bh + gap), v = val(r);
+      const w = Math.max(X(v) - x0, 2);
+      const nm = el("text", { class:"axis", x:x0, y:y - 4 });
+      nm.textContent = r.name; svg.appendChild(nm);
+      svg.appendChild(el("rect", { x:x0, y, width:w, height:bh, rx:4,
+                                   fill:`var(${i === 0 ? "--series-2" : "--series-1"})` }));
+      const lb = el("text", { class:"dl", x:x0 + w + 8, y:y + bh / 2 + 4, fill:"var(--text-primary)" });
+      lb.textContent = label(v); svg.appendChild(lb);
+    });
+    svg.appendChild(el("line", { class:"ax", x1:x0, x2:x1, y1:y1 + 4, y2:y1 + 4 }));
+  }
+  hbars("ing1", ING, r => r.vps, v => fmt(v), false, [0, 16000]);
+  hbars("ing2", ING, r => r.p50, v => v.toFixed(3) + " ms", true, [0.06, 3]);
+
+  (function ingTable() {
+    const tb = document.getElementById("tb-ing");
+    ING.forEach((r, i) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><span class="swcell" style="background:var(${i === 0 ? "--series-2" : "--series-1"})"></span>${r.name}</td>` +
+        `<td class="num">${fmt(r.vps)}</td><td class="num">${r.idle.toFixed(3)}</td>` +
+        `<td class="num">${r.p50.toFixed(3)}</td><td class="num">${r.p999.toFixed(2)}</td>` +
+        `<td class="num">${r.max.toFixed(2)}</td>`;
+      tb.appendChild(tr);
+    });
+  })();
+
+  /* ---------- 6. storage sections ---------- */
+  (function fmtStrip() {
+    const svg = document.getElementById("fmt");
+    const W = 900, L = 0, R = 0, T = 36, h = 42;
+    const hdr = el("text", { class:"axis", x:0, y:16, fill:"var(--text-secondary)" });
+    hdr.textContent = "header + per-section CRC-32C →"; svg.appendChild(hdr);
+
+    // Every box must fit its own label, so give each one a floor derived from the
+    // label length and share only the leftover space out by section weight.
+    const AVAIL = W - L - R - (SECTIONS.length - 1) * 2;
+    const CH = 6.3, PAD = 18;
+    SECTIONS.forEach(s => { s.min = s.n.length * CH + PAD; });
+    const floor = SECTIONS.reduce((a, s) => a + s.min, 0);
+    const weight = SECTIONS.reduce((a, s) => a + s.w, 0);
+    const slack = Math.max(AVAIL - floor, 0);
+    SECTIONS.forEach(s => { s.px = s.min + s.w / weight * slack; });
+
+    let x = L;
+    SECTIONS.forEach(s => {
+      const w = s.px;
+      svg.appendChild(el("rect", { x, y:T, width:w, height:h, rx:3,
+        fill: s.on ? "var(--accent)" : "var(--surface-2)",
+        stroke: s.on ? "none" : "var(--border-strong)" }));
+      const t = el("text", { x:x + w / 2, y:T + h / 2 + 4, "text-anchor":"middle",
+        class:"dl", fill: s.on ? "var(--surface-1)" : "var(--text-secondary)",
+        style:"font-size:10.5px" });
+      t.textContent = s.n; svg.appendChild(t);
+      x += w + 2;
+    });
+    const k1 = el("text", { class:"axis", x:0, y:T + h + 24, fill:"var(--text-muted)" });
+    k1.textContent = "filled = always present · outlined = conditional (tombstones only when rows are deleted; graph sections only for HNSW)";
+    svg.appendChild(k1);
+    const k2 = el("text", { class:"axis", x:0, y:T + h + 44, fill:"var(--text-muted)" });
+    k2.textContent = "VECTORS begins on a 4096-byte boundary, so a whole-file mapping yields aligned rows. Widths are illustrative, not to scale.";
+    svg.appendChild(k2);
+  })();
+})();
+</script>
+</body>
+</html>
