@@ -1,5 +1,10 @@
 # VectorForge
 
+[![CI](https://github.com/garg-kavya/Vector-Forge/actions/workflows/ci.yml/badge.svg)](https://github.com/garg-kavya/Vector-Forge/actions/workflows/ci.yml)
+[![Sanitizers](https://github.com/garg-kavya/Vector-Forge/actions/workflows/sanitizers.yml/badge.svg)](https://github.com/garg-kavya/Vector-Forge/actions/workflows/sanitizers.yml)
+[![Nightly](https://github.com/garg-kavya/Vector-Forge/actions/workflows/nightly.yml/badge.svg)](https://github.com/garg-kavya/Vector-Forge/actions/workflows/nightly.yml)
+[![Lint](https://github.com/garg-kavya/Vector-Forge/actions/workflows/lint.yml/badge.svg)](https://github.com/garg-kavya/Vector-Forge/actions/workflows/lint.yml)
+
 VectorForge is a C++20 vector similarity search engine built from first principles: exact
 (brute-force) and approximate (HNSW) k-nearest-neighbour search over float32 vectors, with AVX2
 distance kernels chosen at runtime, concurrent insertion and search, a checksummed on-disk format
@@ -112,6 +117,26 @@ Reference: [docs/python-api.md](docs/python-api.md), [quickstart](examples/pytho
 ```
 
 The core library has no third-party dependencies. Details: [docs/architecture.md](docs/architecture.md).
+
+### The query path
+
+```mermaid
+flowchart LR
+  Q["query vector"] --> V["validate"]
+  V --> L["shared lock<br/>(searches never block each other)"]
+  L --> C["lease SearchContext<br/>(pooled: no allocation)"]
+  C --> K{"index"}
+  K -->|Flat| F["blocked scan<br/>bounded max-heap"]
+  K -->|HNSW| D["greedy descent<br/>levels above 0"]
+  D --> B["beam search on level 0<br/>ef = max(ef_search, k)<br/>epoch-stamped visited set"]
+  F --> M["map internal ids<br/>to external ids"]
+  B --> M
+  M --> R["k neighbours, ascending<br/>(distance, id)"]
+```
+
+Every distance in that path goes through the kernel tier chosen at startup (scalar or AVX2+FMA).
+Tombstoned nodes are expanded like any other node but never enter the result set, so heavy deletion
+makes queries do more work until the collection is compacted.
 
 ## Design highlights
 
